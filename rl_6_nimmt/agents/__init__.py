@@ -7,7 +7,7 @@ from .dqn import DQN_PRBAgent, DDQN_PRBAgent, DuellingDDQN_PRBAgent, D3QN_PRB_NS
 from .dqn import Noisy_DQN, Noisy_D3QN_PRB_NStep, Noisy_D3QN
 from .actor_critic import BatchedACERAgent
 from .policy import MaskedReinforceAgent, BatchedReinforceAgent
-from .mcts import MCSAgent, PolicyMCSAgent, PUCTAgent
+from .mcts import MCSAgent, PolicyMCSAgent, PUCTAgent, PUCTCustomedAgent
 
 
 HUMAN = "human"

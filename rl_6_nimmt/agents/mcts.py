@@ -99,7 +99,6 @@ class BaseMCAgent(Agent):
             action, log_prob, outcome = self._play_out(env, outcomes)
             outcomes[action].append(outcome)
             log_probs[action].append(log_prob)
-
         action, info = self._choose_action_from_outcomes(outcomes, log_probs)
         return action, info
 
@@ -231,7 +230,6 @@ class PolicyMCSAgent(BaseMCAgent):
     def learn(self, state, reward, action, done, next_state, next_reward, episode_end, num_episode, legal_actions, *args, **kwargs):
         # Memorize step
         self.history.store(log_prob=kwargs["log_prob"], reward=reward * self.r_factor)
-
         # No further steps after each step
         if not episode_end or not self.training:
             return 0.
@@ -323,3 +321,131 @@ class PUCTAgent(PolicyMCSAgent):
 
         # TODO: sampling from visited moves with probability ~ n(a)^(1/temperature)
         raise NotImplementedError
+
+class PUCTCustomedAgent(PUCTAgent):
+    def __init__(
+        self,
+        hidden_sizes=(100, 100,),
+        activation=nn.ReLU(),       
+        **kwargs
+    ):
+        super().__init__(**kwargs)
+
+        out_dim=2            
+        self.actor = MultiHeadedMLP(self.state_length + 1, hidden_sizes=hidden_sizes, head_sizes=(out_dim,), activation=activation, head_activations=(None,))
+        self.MSELoss = nn.MSELoss()
+
+    def forward(self, state, legal_actions, *args, **kwargs):
+        n = len(legal_actions)
+
+        # Card memory
+        if n == self.handsize:
+            self._initialize_game(state)
+        self._memorize_cards(state, legal_actions)
+
+        # Pick action through a kind of MCTS
+        if n == 1:
+            _, info = self._mcts(legal_actions, state)
+            action, info = legal_actions[0], {"log_prob": torch.tensor(0.).to(self.device, self.dtype), "outcome": info["outcome"]}
+        else:
+            action, info = self._mcts(legal_actions, state)
+
+        return action, info
+
+    def _mcts(self, legal_actions, state):
+        n = len(legal_actions)
+        #n_mc = self._compute_n_mc(n)
+        outcomes = {action : [] for action in legal_actions}
+        log_probs = {action : [] for action in legal_actions}
+
+        env = self._draw_env(legal_actions, state)
+        action, log_prob, outcome = self._play_out_with_NN(env, outcomes)
+        info = {"log_prob": log_prob, "outcome": outcome}
+        return action, info
+
+    def _play_out_with_NN(self, env, outcomes):
+        states, all_legal_actions = env._create_states()
+        states = self._tensorize(states)
+        initial_action = None
+
+        ##This function should be more simple. while loop is not needed as the outcome is estimated with one shot NN estimation
+        #(caution) in case oppponent=True PUCT for first move is not employed 
+        action, log_prob, value = self._choose_action_mc(all_legal_actions[0], states[0], outcomes, first_move=(initial_action is None), opponent=True)
+
+        return action, log_prob, value
+
+    def _choose_action_mc_func(self, legal_actions, state, outcomes, first_move=True, opponent=False):
+        probs, values = self._compute_policy_and_value(legal_actions, state)
+        cat = Categorical(probs)
+
+        ##chose action_id which has highest value
+        action_id = torch.argmax(values)
+        log_prob = cat.log_prob(action_id)
+        action = legal_actions[action_id]
+        value = values[action_id]
+        return int(action), log_prob, value
+
+    def _choose_action_mc(self, legal_actions, state, outcomes, first_move=True, opponent=False):
+        # Opponents and subsequent moves are just drawn from policy, since we are almost certain to never have encountered that situation anyway
+        if (not first_move) or opponent:
+            return self._choose_action_mc_func(legal_actions, state, outcomes, first_move, opponent)
+
+        # For first move, use PUCT
+        probs, values = self._compute_policy_and_value(legal_actions, state)
+        pucts = self._compute_pucts(legal_actions, outcomes, probs)
+
+        # Pick highest
+        best_puct = - float("inf")
+        choice = 0
+        for i, puct in enumerate(pucts):
+            if puct > best_puct:
+                best_puct = puct
+                choice = i
+        return int(legal_actions[choice]), torch.log(probs[choice]), values[choice]
+
+    def _compute_policy_and_value(self, legal_actions, state):
+        batch_states = []
+        for action in legal_actions:
+            action_ = torch.tensor([action]).to(self.device, self.dtype)
+            batch_states.append(torch.cat((action_, state), dim=0).unsqueeze(0))
+        batch_states = torch.cat(batch_states, dim=0)
+        batch_states = self.preprocessor(batch_states)
+        (tmp,) = self.actor(batch_states)
+        probs = self.softmax(tmp[:,0]).flatten()
+        values = tmp[:,1].flatten()
+        return probs, values
+
+    def learn(self, state, reward, action, done, next_state, next_reward, episode_end, num_episode, legal_actions, *args, **kwargs):
+        # Memorize step
+        self.history.store(log_prob=kwargs["log_prob"], outcome=kwargs["outcome"], reward=reward * self.r_factor)
+
+        # No further steps after each step
+        if not episode_end or not self.training:
+            return 0.
+
+        # Gradient updates
+        loss = self._train()
+
+        # Reset memory for next episode
+        self.history.clear()
+
+        return loss
+    
+    def _train(self):
+        # Roll out last episode
+        rollout = self.history.rollout()
+        log_probs = torch.stack(rollout["log_prob"], dim=0)
+        outcome = torch.stack(rollout["outcome"], dim=0)
+        reward_sum = sum(rollout["reward"])/self.r_factor
+        
+        # Compute loss
+        outcome_loss = self.MSELoss(outcome, torch.full(outcome.shape,fill_value=reward_sum))
+        policy_loss = -torch.sum(log_probs)  # train policy to get closer to (deterministic) MCS choice
+
+        loss = outcome_loss + policy_loss
+        print("loss: ", loss.item(), ",policy_loss: ", policy_loss.item(),",outcome_loss: ", outcome_loss.item())
+        # Gradient update
+        self._gradient_step(loss)
+
+        return loss.item()
+
