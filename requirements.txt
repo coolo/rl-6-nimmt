@@ -1,0 +1,35 @@
+# Core ML/RL dependencies
+torch>=1.4.0
+torchvision>=0.4.0
+numpy>=1.16.0
+scipy>=1.2.0
+scikit-learn>=0.21.0
+
+# Gym environment
+gym>=0.26.0
+Box2D
+
+# Numerical computing
+numba
+matplotlib>=3.0.0
+
+# Progress bars and utilities
+tqdm
+
+# Jupyter notebook support
+notebook
+
+# Profiling
+line_profiler
+
+# Multi-player Elo rating system
+multi_elo
+
+# Configuration parsing
+configargparse
+
+# TensorBoard logging
+tensorboard
+
+# Code formatting
+black

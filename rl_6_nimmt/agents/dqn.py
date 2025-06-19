@@ -149,7 +149,7 @@ class DQNVanilla(Agent):
 
             # if isinstance(item, list) and isinstance(item[0], (float)):
             #     experiences[key] = torch.Tensor(item).to(self.device)
-            # elif isinstance(item, list) and isinstance(item[0], (int, bool, np.int)):
+            # elif isinstance(item, list) and isinstance(item[0], (int, bool, np.int32)):
             #     experiences[key] = torch.from_numpy(item).to(self.device, dtype = torch.int)
             # # elif isinstance(item, list) and isinstance(item[0], (float, int, np.number)):
             # #     experiences[key] = torch.from_numpy(np.array(item)).to(self.device)

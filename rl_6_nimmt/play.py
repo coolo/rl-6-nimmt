@@ -26,8 +26,8 @@ class GameSession:
         states, all_legal_actions = self.env.reset()
         states = self._tensorize(states)
         done = False
-        rewards = np.zeros(self.num_agents, dtype=np.int)
-        scores = np.zeros(self.num_agents, dtype=np.int)
+        rewards = np.zeros(self.num_agents, dtype=np.int32)
+        scores = np.zeros(self.num_agents, dtype=np.int32)
 
         if render:
             self.env.render()

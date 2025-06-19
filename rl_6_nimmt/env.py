@@ -29,13 +29,13 @@ class SechsNimmtEnv(Env):
 
         self._board = [[] for _ in range(self._num_rows)]
         self._hands = [[] for _ in range(self._num_players)]
-        self._scores = np.zeros(self._num_players, dtype=np.int)
+        self._scores = np.zeros(self._num_players, dtype=np.int32)
 
         self.action_space = Discrete(self._num_cards)
         self.reward_range = (-float("inf"), 0)
         self.metadata = {"render.modes": ["human"]}
         state_shape = (10 + 1 + int(self._include_summaries) * 3 * self._num_rows + self._num_rows * self._threshold,)
-        self.observation_space = Box(low=-1.0, high=2.0, shape=state_shape, dtype=np.float)
+        self.observation_space = Box(low=-1.0, high=2.0, shape=state_shape, dtype=np.float32)
         self.spec = None
 
         self.verbose = verbose
@@ -44,7 +44,7 @@ class SechsNimmtEnv(Env):
         """ Resets the state of the environment and returns an initial observation. """
 
         self._deal()
-        self._scores = np.zeros(self._num_players, dtype=np.int)
+        self._scores = np.zeros(self._num_players, dtype=np.int32)
 
         states = self._create_states()
 
@@ -55,7 +55,7 @@ class SechsNimmtEnv(Env):
 
         self._board = board
         self._hands = hands
-        self._scores = np.zeros(self._num_players, dtype=np.int)
+        self._scores = np.zeros(self._num_players, dtype=np.int32)
 
         states = self._create_states()
 
@@ -100,7 +100,7 @@ class SechsNimmtEnv(Env):
         """ Deals random cards to all players and initiates the game board """
 
         if self.verbose: logger.debug("Dealing cards")
-        cards = np.arange(0, self._num_cards, 1, dtype=np.int)
+        cards = np.arange(0, self._num_cards, 1, dtype=np.int32)
         np.random.shuffle(cards)
         cards = list(cards)
 
@@ -120,7 +120,7 @@ class SechsNimmtEnv(Env):
     def _play_cards(self, cards):
         """ Given one played card per player, play the cards, score points, and update the game """
 
-        rewards = np.zeros(self._num_players, dtype=np.int)
+        rewards = np.zeros(self._num_players, dtype=np.int32)
         actions = [(card, player) for player, card in enumerate(cards)]
         actions = sorted(actions, key=lambda x: x[0])
 
@@ -165,7 +165,7 @@ class SechsNimmtEnv(Env):
         if self.verbose: logger.debug(f"  ...and gains {penalty} Hornochsen")
 
         self._scores[player] += penalty
-        rewards = np.zeros(self._num_players, dtype=np.int)
+        rewards = np.zeros(self._num_players, dtype=np.int32)
         rewards[player] -= penalty
         self._board[row] = [cards[-1]]
 
@@ -188,15 +188,15 @@ class SechsNimmtEnv(Env):
     def _create_game_state(self):
         """ Builds game state """
 
-        board_array = -np.ones((self._num_rows, self._threshold), dtype=np.int)
+        board_array = -np.ones((self._num_rows, self._threshold), dtype=np.int32)
         for row, cards in enumerate(self._board):
             for i, card in enumerate(cards):
                 board_array[row, i] = card
 
         if self._include_summaries:
-            cards_per_row = np.array([len(cards) for cards in self._board], dtype=np.int)
-            highest_per_row = np.array([cards[-1] for cards in self._board], dtype=np.int)
-            score_per_row = np.array([self._row_value(cards, include_last=True) for cards in self._board], dtype=np.int)
+            cards_per_row = np.array([len(cards) for cards in self._board], dtype=np.int32)
+            highest_per_row = np.array([cards[-1] for cards in self._board], dtype=np.int32)
+            score_per_row = np.array([self._row_value(cards, include_last=True) for cards in self._board], dtype=np.int32)
             state = np.hstack(([self._num_players], cards_per_row, highest_per_row, score_per_row, board_array.flatten()))
         else:
             state = np.hstack(([self._num_players], board_array.flatten()))
@@ -207,7 +207,7 @@ class SechsNimmtEnv(Env):
         """ Builds agent state for a given player """
 
         legal_actions = self._hands[player].copy()
-        player_state = np.array(self._hands[player] + [-1 for _ in range(10 - len(legal_actions))], dtype=np.int)
+        player_state = np.array(self._hands[player] + [-1 for _ in range(10 - len(legal_actions))], dtype=np.int32)
 
         return player_state, legal_actions
 

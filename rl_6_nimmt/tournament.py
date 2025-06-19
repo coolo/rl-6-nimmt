@@ -241,8 +241,8 @@ class Tournament:
     def _compute_absolute_positions(scores):
         """ 0 = best, n_players - 1 = worst """
         epsilon = 0.5
-        positions_l = np.array([np.searchsorted(sorted(- scores), - score - epsilon) for score in scores], dtype=np.float)
-        positions_r = 1.0 + np.array([np.searchsorted(sorted(- scores), - score + epsilon) for score in scores], dtype=np.float)
+        positions_l = np.array([np.searchsorted(sorted(- scores), - score - epsilon) for score in scores], dtype=np.float32)
+        positions_r = 1.0 + np.array([np.searchsorted(sorted(- scores), - score + epsilon) for score in scores], dtype=np.float32)
         positions = 0.5 * (positions_l + positions_r)
         return positions
 
@@ -250,8 +250,8 @@ class Tournament:
     def _compute_relative_positions(scores):
         """ 1 = best, 0 = worst """
         epsilon = 0.5
-        positions_l = np.array([np.searchsorted(sorted(scores), score + epsilon) for score in scores], dtype=np.float)
-        positions_r = 1.0 + np.array([np.searchsorted(sorted(scores), score - epsilon) for score in scores], dtype=np.float)
+        positions_l = np.array([np.searchsorted(sorted(scores), score + epsilon) for score in scores], dtype=np.float32)
+        positions_r = 1.0 + np.array([np.searchsorted(sorted(scores), score - epsilon) for score in scores], dtype=np.float32)
         positions = 0.5 * (positions_l + positions_r)
         return (positions - 1) / (len(scores) - 1)
 
