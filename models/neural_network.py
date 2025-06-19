@@ -10,15 +10,15 @@ from game.take6 import Card, GameState, Take6Game
 class Take6Network(tf.keras.Model):
     """Neural network for playing Take 6."""
     
-    def __init__(self, input_size: int = 2604, hidden_size: int = 512, name: str = "Take6Network"):
+    def __init__(self, input_size: int = 2608, hidden_size: int = 512, name: str = "Take6Network"):
         """
         Initialize the network.
         input_size: Size of game state vector (default calculated from game state)
         - Player hand: 104 bits
         - 4 rows * 6 positions * 104 cards: 2496 bits
-        - 4 penalty points (normalized): 4 floats
+        - 6 penalty points (normalized): 6 floats (fixed size for up to 6 players)
         - Round number (normalized): 1 float
-        Total: 104 + 2496 + 4 + 1 = 2605, but we'll use 2604 for alignment
+        Total: 104 + 2496 + 6 + 1 = 2607, but we'll use 2608 for alignment
         """
         super().__init__(name=name)
         
@@ -182,7 +182,7 @@ class ModelFactory:
     """Factory for creating and managing neural network models."""
     
     @staticmethod
-    def create_model(model_id: int, input_size: int = 2605, 
+    def create_model(model_id: int, input_size: int = 2608, 
                     hidden_size_base: int = 512, diversity_factor: float = 0.3) -> Take6Network:
         """Create a new model with some architectural diversity."""
         # Add some variation to hidden layer sizes
@@ -209,7 +209,7 @@ class ModelFactory:
         return model
     
     @staticmethod
-    def create_population(population_size: int, input_size: int = 2605) -> List[Take6Player]:
+    def create_population(population_size: int, input_size: int = 2608) -> List[Take6Player]:
         """Create a population of players with diverse neural networks."""
         players = []
         

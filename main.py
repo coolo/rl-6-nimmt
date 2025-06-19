@@ -41,7 +41,7 @@ def create_players(num_players: int = 40) -> List[Take6Player]:
     
     # Calculate input size based on game state
     # This should match the get_game_state_vector method in GameState
-    input_size = 104 + (4 * 6 * 104) + 4 + 1  # Hand + Rows + Penalties + Round
+    input_size = 104 + (4 * 6 * 104) + 6 + 1  # Hand + Rows + Penalties(6 slots) + Round
     
     players = ModelFactory.create_population(num_players, input_size)
     

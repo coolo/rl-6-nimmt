@@ -59,7 +59,7 @@ def test_neural_network():
         from models.neural_network import ModelFactory
         
         # Create a small population
-        players = ModelFactory.create_population(4, input_size=2605)
+        players = ModelFactory.create_population(4, input_size=2608)
         print(f"✓ Created {len(players)} neural network players")
         
         # Test model structure
@@ -83,7 +83,7 @@ def test_single_game():
         from models.neural_network import ModelFactory
         
         # Create players
-        players = ModelFactory.create_population(4, input_size=2605)
+        players = ModelFactory.create_population(4, input_size=2608)
         
         # Create game
         game = Take6Game(num_players=4)

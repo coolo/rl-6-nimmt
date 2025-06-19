@@ -24,7 +24,7 @@ try:
     print(f"   ✓ Player 0 has {len(state.players_hands[0])} cards")
     
     print("4. Creating players...")
-    players = ModelFactory.create_population(2, input_size=2605)
+    players = ModelFactory.create_population(2, input_size=2608)
     print(f"   ✓ Created {len(players)} players")
     
     print("5. Testing game state...")

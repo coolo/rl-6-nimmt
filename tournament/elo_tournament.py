@@ -100,17 +100,20 @@ class Tournament:
             'target_penalty': target_penalty
         }
         
+        # Track cumulative penalties across games in this match
+        cumulative_penalties = [0] * num_players
         game_count = 0
+        max_games = 50  # Safety limit to prevent infinite loops
         
         # Keep playing games until someone reaches the target penalty
-        while True:
+        while game_count < max_games:
             state = game.reset()
             game_count += 1
             
             game_log = {
                 'game_number': game_count,
                 'rounds': [],
-                'penalty_totals_start': [int(x) for x in state.players_penalty_points]
+                'penalty_totals_start': cumulative_penalties.copy()
             }
             
             # Play rounds until all cards are used (one complete hand)
@@ -122,6 +125,7 @@ class Tournament:
                 
                 # Get action from each player
                 for i, player in enumerate(game_players):
+
                     valid_actions = game.get_valid_actions(i)
                     if valid_actions:  # Only if player has cards
                         card, row = player.get_action(state, valid_actions, game_player_id=i, training=True)
@@ -139,25 +143,34 @@ class Tournament:
                               for i, (card, row) in player_actions.items()},
                     'results': {int(i): (int(penalty), [int(c.number) for c in cards]) 
                               for i, (penalty, cards) in round_results.items()},
-                    'penalty_totals': [int(x) for x in state.players_penalty_points]
+                    'penalty_totals': [int(cumulative_penalties[i] + state.players_penalty_points[i]) for i in range(num_players)]
                 }
                 game_log['rounds'].append(round_log)
                 
                 if verbose:
                     print(f"Round {round_num + 1}: Penalty totals: {state.players_penalty_points}")
             
-            game_log['penalty_totals_end'] = [int(x) for x in state.players_penalty_points]
+            # Add this game's penalties to cumulative total
+            for i in range(num_players):
+                cumulative_penalties[i] += state.players_penalty_points[i]
+            
+            game_log['penalty_totals_end'] = cumulative_penalties.copy()
             match_log['games'].append(game_log)
             
-            # Check if anyone has reached the target penalty
-            if any(penalty >= target_penalty for penalty in state.players_penalty_points):
+            # Check if anyone has reached the target penalty (using cumulative)
+            if any(penalty >= target_penalty for penalty in cumulative_penalties):
                 break
                 
             if verbose:
-                print(f"Game {game_count} completed. Current penalties: {state.players_penalty_points}")
+                print(f"Game {game_count} completed. Cumulative penalties: {cumulative_penalties}")
+        
+        # If we hit the game limit, end the match anyway
+        if game_count >= max_games:
+            if verbose:
+                print(f"Match ended after {max_games} games (safety limit)")
         
         # Update Elo ratings based on final match result
-        final_penalties = state.players_penalty_points
+        final_penalties = cumulative_penalties
         self.elo_system.update_ratings(game_players, final_penalties)
         
         match_log['final_scores'] = [int(x) for x in final_penalties]

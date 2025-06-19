@@ -25,7 +25,7 @@ def main():
         
         # Test neural network creation
         print("3. Testing neural network creation...")
-        players = ModelFactory.create_population(4, input_size=2605)
+        players = ModelFactory.create_population(4, input_size=2608)
         print(f"   ✓ Created {len(players)} neural network players")
         
         # Test single game

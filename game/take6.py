@@ -132,8 +132,10 @@ class GameState:
                     row_vector[pos * 104 + card.number - 1] = 1
             state.extend(row_vector.tolist())
         
-        # Penalty points for all players (normalized)
-        penalty_vector = np.array(self.players_penalty_points, dtype=float) / 100.0  # Normalize
+        # Penalty points for all players (normalized) - always use 6 slots for consistency
+        penalty_vector = np.zeros(6, dtype=float)  # Always 6 slots for max players
+        for i in range(min(len(self.players_penalty_points), 6)):
+            penalty_vector[i] = self.players_penalty_points[i] / 100.0  # Normalize
         state.extend(penalty_vector.tolist())
         
         # Round number (normalized)
