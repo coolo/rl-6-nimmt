@@ -55,7 +55,12 @@ def run_verbose_2player_match():
     for i, player in enumerate(players):
         player_id = match_result['players'][i]
         final_penalty = match_result['final_scores'][i]
-        status = "🥇 WINNER" if i == match_result['winner'] else "🥈"
+        if i == match_result['best_performer']:
+            status = "🥇 BEST PERFORMER"
+        elif i == match_result['worst_performer']:
+            status = "🥉 WORST PERFORMER"
+        else:
+            status = f"🥈 #{i + 1}"
         print(f"  Player ID {player_id}: {final_penalty} penalty points {status}")
     print()
     
@@ -64,13 +69,28 @@ def run_verbose_2player_match():
     for i, player in enumerate(players):
         player_id = match_result['players'][i]
         elo_change = player.elo_rating - initial_elos[i]
-        status = "🥇 WINNER" if i == match_result['winner'] else "🥈"
+        if i == match_result['best_performer']:
+            status = "🥇 BEST PERFORMER"
+        elif i == match_result['worst_performer']:
+            status = "🥉 WORST PERFORMER"
+        else:
+            status = f"🥈 #{i + 1}"
         print(f"Player ID {player_id} {status}")
         print(f"  Final penalty points: {match_result['final_scores'][i]}")
         print(f"  Elo rating: {initial_elos[i]:.1f} -> {player.elo_rating:.1f} ({elo_change:+.1f})")
         print(f"  Games played: {player.games_played}")
         print(f"  Average penalty per game: {player.get_average_score():.2f}")
         print()
+    
+    # Show Elo impact summary
+    print("🎯 ELO IMPACT SUMMARY:")
+    best_elo_change = players[match_result['best_performer']].elo_rating - initial_elos[match_result['best_performer']]
+    worst_elo_change = players[match_result['worst_performer']].elo_rating - initial_elos[match_result['worst_performer']]
+    print(f"  Best performer gained: {best_elo_change:+.1f} Elo points")
+    print(f"  Worst performer lost: {worst_elo_change:+.1f} Elo points")
+    total_elo_exchange = sum(abs(players[i].elo_rating - initial_elos[i]) for i in range(len(players)))
+    print(f"  Total Elo exchanged: {total_elo_exchange:.1f} points")
+    print()
     
     # Show detailed game breakdown
     print("📋 DETAILED BREAKDOWN:")

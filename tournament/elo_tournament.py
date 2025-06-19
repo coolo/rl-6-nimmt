@@ -23,15 +23,20 @@ class EloSystem:
         """Calculate expected score for player A against player B."""
         return 1.0 / (1.0 + 10**((rating_b - rating_a) / 400))
     
-    def update_ratings(self, players: List[Take6Player], game_results: List[int]):
+    def update_ratings(self, players: List[Take6Player], game_results: List[int], target_penalty: int = 100):
         """
         Update Elo ratings based on game results.
         game_results: List of penalty points for each player (lower is better)
+        target_penalty: Target penalty points for the match (used for performance scaling)
         """
         num_players = len(players)
         
         # Convert penalty points to rankings (0 = best, n-1 = worst)
         rankings = self._penalty_points_to_rankings(game_results)
+        
+        # Calculate performance multiplier based on overall game quality
+        best_penalty = min(game_results)
+        performance_multiplier = self._calculate_performance_multiplier(best_penalty, target_penalty)
         
         # Update each player's rating
         for i, player in enumerate(players):
@@ -54,12 +59,42 @@ class EloSystem:
             expected_score = expected_total / (num_players - 1)
             actual_score = actual_total / (num_players - 1)
             
-            # Update rating
+            # Base K factor
             k = self.k_factor if player.games_played < 30 else self.k_factor // 2
+            
+            # Apply performance multiplier based on overall game quality
+            k *= performance_multiplier
+            
             player.elo_rating += k * (actual_score - expected_score)
             
             # Update player statistics
             player.add_game_score(game_results[i])
+    
+    def _calculate_performance_multiplier(self, best_penalty: int, target_penalty: int) -> float:
+        """
+        Calculate a multiplier for Elo changes based on best performer's penalty.
+        Returns a value between 0.3 and 1.5:
+        - 1.5 for excellent performance (very low penalty)
+        - 1.0 for average performance 
+        - 0.3 for poor performance (close to target penalty)
+        """
+        if best_penalty >= target_penalty:
+            # Even the best player reached target - minimal Elo changes
+            return 0.1
+        
+        # Calculate ratio of best penalty to target
+        penalty_ratio = best_penalty / target_penalty
+        
+        if penalty_ratio >= 0.8:  # 80-99% of target - poor performance overall
+            return 0.3
+        elif penalty_ratio >= 0.6:  # 60-79% of target - decent performance
+            return 0.6
+        elif penalty_ratio >= 0.4:  # 40-59% of target - good performance
+            return 0.9
+        elif penalty_ratio >= 0.2:  # 20-39% of target - very good performance
+            return 1.2
+        else:  # < 20% of target - excellent performance
+            return 1.5
     
     def _penalty_points_to_rankings(self, penalty_points: List[int]) -> List[int]:
         """Convert penalty points to rankings (0 = best)."""
@@ -170,21 +205,48 @@ class Tournament:
             if verbose:
                 print(f"Match ended after {max_games} games (safety limit)")
         
+        # Store initial Elo ratings for comparison
+        initial_elos = [p.elo_rating for p in game_players]
+        
         # Update Elo ratings based on final match result
         final_penalties = cumulative_penalties
-        self.elo_system.update_ratings(game_players, final_penalties)
+        self.elo_system.update_ratings(game_players, final_penalties, target_penalty)
         
         match_log['final_scores'] = [int(x) for x in final_penalties]
         match_log['final_elo'] = [float(p.elo_rating) for p in game_players]
-        match_log['winner'] = int(np.argmin(final_penalties))  # Winner has lowest penalty
+        match_log['best_performer'] = int(np.argmin(final_penalties))  # Best performer has lowest penalty
+        match_log['worst_performer'] = int(np.argmax(final_penalties))  # Worst performer has highest penalty
         match_log['total_games'] = game_count
         
         if verbose:
+            # Create rankings (0 = best, higher = worse)
+            penalty_rankings = self.elo_system._penalty_points_to_rankings(final_penalties)
+            
             final_penalty_map = {game_players[i].player_id: final_penalties[i] for i in range(num_players)}
-            winner_id = game_players[match_log['winner']].player_id
+            best_performer_id = game_players[match_log['best_performer']].player_id
+            worst_performer_id = game_players[match_log['worst_performer']].player_id
+            best_penalty = min(final_penalties)
+            worst_penalty = max(final_penalties)
+            performance_multiplier = self.elo_system._calculate_performance_multiplier(best_penalty, target_penalty)
+            
             print(f"Match completed after {game_count} games.")
             print(f"Final penalty scores: {final_penalty_map}")
-            print(f"Winner: Player ID {winner_id}")
+            print(f"Best performer: Player ID {best_performer_id} (penalty: {best_penalty})")
+            print(f"Worst performer: Player ID {worst_performer_id} (penalty: {worst_penalty})")
+            print(f"Performance multiplier: {performance_multiplier:.2f} ({'excellent game' if performance_multiplier >= 1.2 else 'good game' if performance_multiplier >= 0.9 else 'decent game' if performance_multiplier >= 0.6 else 'tough game'})")
+            
+            # Show Elo rating changes for each player with their ranking
+            print(f"Elo rating updates:")
+            for i, player in enumerate(game_players):
+                elo_change = player.elo_rating - initial_elos[i]
+                rank = penalty_rankings[i]
+                if rank == 0:
+                    status = "🥇 Best"
+                elif rank == len(game_players) - 1:
+                    status = "🥉 Worst"
+                else:
+                    status = f"🥈 #{rank + 1}"
+                print(f"  Player ID {player.player_id} {status}: {initial_elos[i]:.1f} -> {player.elo_rating:.1f} ({elo_change:+.1f})")
         
         return match_log
     
