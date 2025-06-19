@@ -8,19 +8,25 @@ from typing import List, Tuple, Optional
 import random
 from game.take6 import Card, GameState, Take6Game
 
-# Configure GPU settings for optimal performance
+# Configure basic TensorFlow settings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow warnings
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN warnings
 
-# Configure GPU memory growth
-gpus = tf.config.list_physical_devices('GPU')
-if gpus:
+def configure_gpu():
+    """Configure GPU settings for optimal performance."""
     try:
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        print(f"GPU configuration successful. Using {len(gpus)} GPU(s) for neural network training.")
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"GPU configuration successful. Using {len(gpus)} GPU(s) for neural network training.")
+            return True
+        else:
+            print("No GPU devices found, using CPU.")
+            return False
     except RuntimeError as e:
         print(f"GPU configuration error: {e}")
+        return False
 
 class Take6Network(tf.keras.Model):
     """Neural network for playing Take 6."""
@@ -227,11 +233,15 @@ class ModelFactory:
     @staticmethod
     def create_population(population_size: int, input_size: int = 2608) -> List[Take6Player]:
         """Create a population of players with diverse neural networks."""
+        # Configure GPU on first model creation
+        configure_gpu()
+        
         players = []
         
         for i in range(population_size):
-            # Create diverse models
-            model = ModelFactory.create_model(i, input_size, diversity_factor=0.4)
+            # Create models with SAME architecture for crossover compatibility
+            # Only vary initialization, not architecture
+            model = ModelFactory.create_model(i, input_size, diversity_factor=0.0)
             
             # Add variation in exploration rates (epsilon)
             epsilon = 0.05 + 0.15 * (i / population_size)  # Range from 0.05 to 0.20
@@ -249,7 +259,16 @@ class ModelFactory:
     def mutate_model(parent_model: Take6Network, mutation_rate: float = 0.1, 
                     mutation_strength: float = 0.02) -> Take6Network:
         """Create a mutated copy of a model with more sophisticated mutations."""
+        # Ensure parent model is built
+        if not parent_model.built:
+            dummy_input = tf.random.normal((1, parent_model.input_size))
+            _ = parent_model(dummy_input)
+        
         new_model = Take6Network(parent_model.input_size, parent_model.hidden_size)
+        
+        # Build the model by calling it with dummy data
+        dummy_input = tf.random.normal((1, parent_model.input_size))
+        _ = new_model(dummy_input)
         
         # Copy weights from parent
         parent_weights = parent_model.get_weights()
@@ -285,13 +304,33 @@ class ModelFactory:
     def crossover_models(parent1: Take6Network, parent2: Take6Network, 
                         child_id: int) -> Take6Network:
         """Create a child model by crossing over two parent models."""
+        # Ensure parents have compatible architectures
+        if parent1.input_size != parent2.input_size or parent1.hidden_size != parent2.hidden_size:
+            print(f"Warning: Parent models have incompatible architectures. Using mutation instead.")
+            return ModelFactory.mutate_model(parent1, 0.15)
+        
         child_model = Take6Network(parent1.input_size, parent1.hidden_size, name=f"Child_{child_id}")
+        
+        # Build the model by calling it with dummy data
+        dummy_input = tf.random.normal((1, parent1.input_size))
+        _ = child_model(dummy_input)
         
         parent1_weights = parent1.get_weights()
         parent2_weights = parent2.get_weights()
+        
+        # Additional safety check for weight shapes
+        if len(parent1_weights) != len(parent2_weights):
+            print(f"Warning: Parent models have different numbers of layers. Using mutation instead.")
+            return ModelFactory.mutate_model(parent1, 0.15)
+        
         child_weights = []
         
-        for w1, w2 in zip(parent1_weights, parent2_weights):
+        for i, (w1, w2) in enumerate(zip(parent1_weights, parent2_weights)):
+            # Check shape compatibility
+            if w1.shape != w2.shape:
+                print(f"Warning: Weight matrices at layer {i} have incompatible shapes: {w1.shape} vs {w2.shape}. Using mutation instead.")
+                return ModelFactory.mutate_model(parent1, 0.15)
+            
             # Random blend of parent weights
             alpha = random.random()
             child_weight = alpha * w1 + (1 - alpha) * w2

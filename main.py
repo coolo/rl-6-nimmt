@@ -22,32 +22,15 @@ from training.self_play import AdaptiveTraining
 from analysis.visualize_results import TournamentAnalyzer
 
 def setup_tensorflow():
-    """Configure TensorFlow settings for optimal GPU usage."""
-    # Configure GPU memory growth
-    gpus = tf.config.list_physical_devices('GPU')
-    if gpus:
-        try:
-            for gpu in gpus:
-                tf.config.experimental.set_memory_growth(gpu, True)
-            
-            # Get GPU details
-            for i, gpu in enumerate(gpus):
-                try:
-                    gpu_details = tf.config.experimental.get_device_details(gpu)
-                    device_name = gpu_details.get('device_name', 'Unknown GPU')
-                    print(f"GPU {i}: {device_name}")
-                except:
-                    print(f"GPU {i}: {gpu.name}")
-            
-            print(f"✅ GPU configuration successful. Using {len(gpus)} GPU(s) for neural networks.")
-        except RuntimeError as e:
-            print(f"❌ GPU setup error: {e}")
-    else:
-        print("⚠️  No GPU found, using CPU")
-    
+    """Configure TensorFlow settings."""
     # Set random seeds for reproducibility
     tf.random.set_seed(42)
     np.random.seed(42)
+    
+    # GPU configuration will be handled by the models module
+    # when models are first created
+    print("✅ TensorFlow configuration completed")
+    return True  # Return True for compatibility
     
     return len(gpus) > 0
 
@@ -65,7 +48,8 @@ def create_players(num_players: int = 40) -> List[Take6Player]:
     return players
 
 def run_training_phase(players: List[Take6Player], num_cycles: int = 10, 
-                      matches_per_cycle: int = 100, target_penalty: int = 100):
+                      matches_per_cycle: int = 100, target_penalty: int = 100,
+                      session_name: str = None):
     """Run the main training phase with new match structure."""
     print(f"\nStarting training phase: {num_cycles} cycles, {matches_per_cycle} matches per cycle")
     print(f"Target penalty points per match: {target_penalty}")
@@ -74,8 +58,13 @@ def run_training_phase(players: List[Take6Player], num_cycles: int = 10,
     elo_system = EloSystem(k_factor=32, initial_rating=1500.0)
     tournament = Tournament(players, elo_system)
     
-    # Create adaptive training system
-    adaptive_trainer = AdaptiveTraining(players, tournament)
+    # Create adaptive training system with logging and checkpoints
+    adaptive_trainer = AdaptiveTraining(
+        players, tournament, 
+        session_name=session_name,
+        enable_logging=True,
+        enable_checkpoints=True
+    )
     
     all_results = []
     
@@ -86,21 +75,40 @@ def run_training_phase(players: List[Take6Player], num_cycles: int = 10,
         cycle_results = adaptive_trainer.run_adaptive_cycle(
             num_matches=matches_per_cycle, 
             target_penalty=target_penalty,
-            train_after_matches=True
+            train_after_matches=True,
+            log_frequency=10  # Log every 10 matches
         )
         all_results.extend(cycle_results)
         
         # Print progress
         tournament.print_leaderboard(top_n=10)
         
-        # Save progress periodically
-        if (cycle + 1) % 5 == 0:
+        # Create checkpoint every 5 cycles or on the last cycle
+        if (cycle + 1) % 5 == 0 or cycle == num_cycles - 1:
+            # Prepare tournament results for checkpoint
+            tournament_results = {
+                'cycle': cycle + 1,
+                'matches_this_cycle': len(cycle_results),
+                'total_matches': len(all_results),
+                'leaderboard': tournament.get_leaderboard()[:20]  # Top 20 players
+            }
+            
+            checkpoint_path = adaptive_trainer.create_checkpoint(
+                save_top_n=15,  # Save top 15 players
+                save_all=(cycle == num_cycles - 1),  # Save all on final cycle
+                tournament_results=tournament_results
+            )
+            
+            # Also save using the old method for compatibility
             save_dir = f"checkpoints/cycle_{cycle + 1}"
             adaptive_trainer.save_models(save_dir)
             tournament.save_results(f"{save_dir}/tournament_results.json")
             print(f"Saved checkpoint to {save_dir}")
     
-    return all_results, tournament, adaptive_trainer
+    # Finalize training
+    training_summary = adaptive_trainer.finalize_training()
+    
+    return all_results, tournament, adaptive_trainer, training_summary
 
 def run_evolutionary_phase(players: List[Take6Player], num_generations: int = 5,
                           matches_per_generation: int = 250, target_penalty: int = 100):
@@ -201,6 +209,7 @@ def main():
     parser.add_argument("--skip-evolution", action="store_true", help="Skip evolutionary phase")
     parser.add_argument("--analyze-only", action="store_true", help="Only run analysis on existing results")
     parser.add_argument("--load-checkpoint", type=str, help="Load models from checkpoint directory")
+    parser.add_argument("--session-name", type=str, help="Name for this training session")
     
     args = parser.parse_args()
     
@@ -211,10 +220,20 @@ def main():
         analyze_results()
         return
     
+    # Generate session name if not provided
+    if args.session_name is None:
+        from datetime import datetime
+        args.session_name = f"tournament_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    print(f"🎲 Take 6 Neural Network Tournament System 🎲")
+    print(f"Session: {args.session_name}")
+    print("=" * 50)
+    
     # Create output directories
     os.makedirs("checkpoints", exist_ok=True)
     os.makedirs("evolution", exist_ok=True)
     os.makedirs("final_results", exist_ok=True)
+    os.makedirs("logs", exist_ok=True)
     
     # Create or load players
     players = create_players(args.players)
@@ -224,14 +243,21 @@ def main():
         # Note: You would implement checkpoint loading here
         # For now, we'll use fresh models
     
+    training_summary = None
+    
     # Training phase
     if not args.skip_training:
-        training_results, tournament, adaptive_trainer = run_training_phase(
-            players, args.training_cycles, args.matches_per_cycle, args.target_penalty
+        training_results, tournament, adaptive_trainer, training_summary = run_training_phase(
+            players, args.training_cycles, args.matches_per_cycle, args.target_penalty, args.session_name
         )
         
-        # Save trained models
+        # Save trained models (compatibility)
         adaptive_trainer.save_models("trained_models")
+        players = adaptive_trainer.players  # Use updated players
+        
+        print(f"\n✅ Training phase completed!")
+        if training_summary and 'logging' in training_summary:
+            print(f"📊 {training_summary['logging'].get('total_matches', 'N/A')} matches logged")
     
     # Evolutionary phase
     if not args.skip_evolution:
@@ -249,11 +275,26 @@ def main():
     print("\n" + "="*60)
     print("TOURNAMENT COMPLETE!")
     print("="*60)
-    print("Check the following directories for results:")
+    
+    # Print session summary
+    if training_summary:
+        print("📋 Session Summary:")
+        print(f"   Session: {args.session_name}")
+        if 'logging' in training_summary:
+            log_info = training_summary['logging']
+            print(f"   ELO Log: {log_info.get('files', {}).get('csv_log', 'N/A')}")
+        if 'final_checkpoint' in training_summary:
+            print(f"   Final Checkpoint: {training_summary['final_checkpoint']}")
+        if 'best_checkpoint' in training_summary:
+            best = training_summary['best_checkpoint']
+            print(f"   Best Player: {best.get('player_id', 'N/A')} (ELO: {best.get('elo_rating', 'N/A')})")
+    
+    print("\nCheck the following directories for results:")
+    print("- logs/: ELO progression and training logs")
+    print("- checkpoints/: Player checkpoints and training states")
     print("- final_results/: Final tournament results")
     print("- analysis_output/: Analysis and visualizations")
     print("- trained_models/: Final model weights")
-    print("- checkpoints/: Training checkpoints")
     print("- evolution/: Evolutionary phase results")
 
 if __name__ == "__main__":
