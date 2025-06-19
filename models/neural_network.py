@@ -173,6 +173,7 @@ class Take6Player:
     def add_game_score(self, penalty_points: int):
         """Add penalty points from a game to total score."""
         self.total_score += penalty_points
+        self.games_played += 1  # Increment games played counter
     
     def get_average_score(self) -> float:
         """Get average penalty points per game."""

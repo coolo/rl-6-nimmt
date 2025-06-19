@@ -147,8 +147,8 @@ class Tournament:
                 }
                 game_log['rounds'].append(round_log)
                 
-                if verbose:
-                    print(f"Round {round_num + 1}: Penalty totals: {state.players_penalty_points}")
+                #if verbose:
+                #    print(f"Round {round_num + 1}: Penalty totals: {state.players_penalty_points}")
             
             # Add this game's penalties to cumulative total
             for i in range(num_players):
@@ -162,7 +162,8 @@ class Tournament:
                 break
                 
             if verbose:
-                print(f"Game {game_count} completed. Cumulative penalties: {cumulative_penalties}")
+                penalty_map = {game_players[i].player_id: cumulative_penalties[i] for i in range(num_players)}
+                print(f"Game {game_count} completed. Penalty totals: {penalty_map}")
         
         # If we hit the game limit, end the match anyway
         if game_count >= max_games:
@@ -179,7 +180,11 @@ class Tournament:
         match_log['total_games'] = game_count
         
         if verbose:
-            print(f"Match completed after {game_count} games. Winner: Player {match_log['winner']}")
+            final_penalty_map = {game_players[i].player_id: final_penalties[i] for i in range(num_players)}
+            winner_id = game_players[match_log['winner']].player_id
+            print(f"Match completed after {game_count} games.")
+            print(f"Final penalty scores: {final_penalty_map}")
+            print(f"Winner: Player ID {winner_id}")
         
         return match_log
     

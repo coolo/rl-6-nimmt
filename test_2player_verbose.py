@@ -50,13 +50,26 @@ def run_verbose_2player_match():
     print(f"Target penalty points: {target_penalty}")
     print()
     
+    # Show final penalty scores per player ID
+    print("📊 FINAL PENALTY SCORES:")
     for i, player in enumerate(players):
+        player_id = match_result['players'][i]
+        final_penalty = match_result['final_scores'][i]
+        status = "🥇 WINNER" if i == match_result['winner'] else "🥈"
+        print(f"  Player ID {player_id}: {final_penalty} penalty points {status}")
+    print()
+    
+    # Show detailed player statistics
+    print("📈 PLAYER STATISTICS:")
+    for i, player in enumerate(players):
+        player_id = match_result['players'][i]
         elo_change = player.elo_rating - initial_elos[i]
         status = "🥇 WINNER" if i == match_result['winner'] else "🥈"
-        print(f"Player {i} {status}")
+        print(f"Player ID {player_id} {status}")
         print(f"  Final penalty points: {match_result['final_scores'][i]}")
         print(f"  Elo rating: {initial_elos[i]:.1f} -> {player.elo_rating:.1f} ({elo_change:+.1f})")
         print(f"  Games played: {player.games_played}")
+        print(f"  Average penalty per game: {player.get_average_score():.2f}")
         print()
     
     # Show detailed game breakdown
