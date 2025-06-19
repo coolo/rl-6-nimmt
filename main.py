@@ -17,7 +17,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from game.take6 import Take6Game
 from models.neural_network import Take6Player, ModelFactory
-from tournament.elo_tournament import Tournament, EvolutionaryTournament, EloSystem
+from tournament.elo_tournament import Tournament, EloSystem
 from training.self_play import AdaptiveTraining
 from analysis.checkpoint_analyzer import CheckpointAnalyzer
 
@@ -110,66 +110,7 @@ def run_training_phase(players: List[Take6Player], num_cycles: int = 10,
     
     return all_results, tournament, adaptive_trainer, training_summary
 
-def run_evolutionary_phase(players: List[Take6Player], num_generations: int = 5,
-                          matches_per_generation: int = 250, target_penalty: int = 100):
-    """Run evolutionary tournament phase with new match structure."""
-    print(f"\nStarting evolutionary phase: {num_generations} generations")
-    print(f"Target penalty points per match: {target_penalty}")
-    
-    # Create evolutionary tournament
-    elo_system = EloSystem(k_factor=40, initial_rating=1500.0)
-    evo_tournament = EvolutionaryTournament(
-        players, elo_system, 
-        selection_ratio=0.3, 
-        mutation_rate=0.15
-    )
-    
-    for generation in range(num_generations):
-        print(f"\n--- Generation {generation + 1}/{num_generations} ---")
-        
-        # Run tournament matches
-        results = evo_tournament.run_random_matches(
-            matches_per_generation, target_penalty=target_penalty, verbose=False
-        )
-        
-        # Print current leaderboard
-        evo_tournament.print_leaderboard(top_n=15)
-        
-        # Evolve population (except for last generation)
-        if generation < num_generations - 1:
-            evo_tournament.evolve_population()
-        
-        # Save generation results
-        save_dir = f"evolution/generation_{generation + 1}"
-        os.makedirs(save_dir, exist_ok=True)
-        evo_tournament.save_results(f"{save_dir}/results.json")
-    
-    return evo_tournament
 
-def run_final_tournament(players: List[Take6Player], num_matches: int = 500, 
-                        target_penalty: int = 100):
-    """Run final comprehensive tournament with new match structure."""
-    print(f"\nRunning final tournament with {num_matches} matches (target: {target_penalty} penalty)...")
-    
-    elo_system = EloSystem(k_factor=16, initial_rating=1500.0)  # Lower K for stability
-    final_tournament = Tournament(players, elo_system)
-    
-    # Run comprehensive tournament
-    results = final_tournament.run_random_matches(
-        num_matches, target_penalty=target_penalty, verbose=True
-    )
-    
-    # Print final standings
-    print("\n" + "="*60)
-    print("FINAL TOURNAMENT RESULTS")
-    print("="*60)
-    final_tournament.print_leaderboard(top_n=20)
-    
-    # Save final results
-    os.makedirs("final_results", exist_ok=True)
-    final_tournament.save_results("final_results/tournament_results.json")
-    
-    return final_tournament, results
 
 def analyze_results(session_name: str = None):
     """Analyze and visualize tournament results using checkpoint data."""
@@ -199,12 +140,8 @@ def main():
     parser.add_argument("--players", type=int, default=40, help="Number of players")
     parser.add_argument("--training-cycles", type=int, default=10, help="Number of training cycles")
     parser.add_argument("--matches-per-cycle", type=int, default=100, help="Matches per training cycle")
-    parser.add_argument("--evolutionary-generations", type=int, default=5, help="Number of evolutionary generations")
-    parser.add_argument("--matches-per-generation", type=int, default=250, help="Matches per evolutionary generation")
-    parser.add_argument("--final-matches", type=int, default=500, help="Number of final tournament matches")
     parser.add_argument("--target-penalty", type=int, default=100, help="Target penalty points to end a match")
     parser.add_argument("--skip-training", action="store_true", help="Skip training phase")
-    parser.add_argument("--skip-evolution", action="store_true", help="Skip evolutionary phase")
     parser.add_argument("--analyze-only", action="store_true", help="Only run analysis on existing results")
     parser.add_argument("--load-checkpoint", type=str, help="Load models from checkpoint directory")
     parser.add_argument("--session-name", type=str, help="Name for this training session (also used for analysis-only mode)")
@@ -229,8 +166,6 @@ def main():
     
     # Create output directories
     os.makedirs("checkpoints", exist_ok=True)
-    os.makedirs("evolution", exist_ok=True)
-    os.makedirs("final_results", exist_ok=True)
     os.makedirs("logs", exist_ok=True)
     
     # Create or load players
@@ -256,22 +191,12 @@ def main():
         print(f"\n✅ Training phase completed!")
         if training_summary and 'logging' in training_summary:
             print(f"📊 {training_summary['logging'].get('total_matches', 'N/A')} matches logged")
-    
-    # Evolutionary phase
-    if not args.skip_evolution:
-        evo_tournament = run_evolutionary_phase(
-            players, args.evolutionary_generations, args.matches_per_generation, args.target_penalty
-        )
-        players = evo_tournament.players  # Use evolved players
-    
-    # Final tournament
-    final_tournament, final_results = run_final_tournament(players, args.final_matches, args.target_penalty)
-    
+
     # Analysis
     analyze_results(args.session_name)
     
     print("\n" + "="*60)
-    print("TOURNAMENT COMPLETE!")
+    print("TRAINING COMPLETE!")
     print("="*60)
     
     # Print session summary
@@ -290,10 +215,8 @@ def main():
     print("\nCheck the following directories for results:")
     print("- logs/: ELO progression and training logs")
     print("- checkpoints/: Player checkpoints and training states")
-    print("- final_results/: Final tournament results")
     print("- analysis_output/: Analysis and visualizations")
     print("- trained_models/: Final model weights")
-    print("- evolution/: Evolutionary phase results")
 
 if __name__ == "__main__":
     main()
