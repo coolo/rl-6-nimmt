@@ -8,7 +8,7 @@ import numpy as np
 import tensorflow as tf
 import random
 import json
-from typing import List
+from typing import List, Tuple, Optional
 from datetime import datetime
 
 # Configure TensorFlow/GPU settings early
@@ -137,11 +137,11 @@ def analyze_results(session_name: str = None):
         print("This might be because no training session with logging/checkpoints was found.")
         print("Please run a training session first with the new logging system.")
 
-def run_test_mode(checkpoint_path: str, num_seeds: int = 10):
-    """Run test mode to evaluate the best player from a checkpoint against random opponents with fixed seeds."""
+def run_test_mode(checkpoint_path: str):
+    """Run test mode to evaluate the best player from a checkpoint against random opponents with 100 predictable runs."""
     print(f"\n🧪 Test Mode: Evaluating best player against random opponents")
     print(f"Checkpoint: {checkpoint_path}")
-    print(f"Testing with {num_seeds} different seeds")
+    print(f"Testing with 100 predictable runs (deterministic)")
     print("="*60)
     
     try:
@@ -181,24 +181,35 @@ def run_test_mode(checkpoint_path: str, num_seeds: int = 10):
         print(f"❌ Failed to load player: {e}")
         return
     
-    # Import RandomPlayer from game module
-    from game.take6 import RandomPlayer, Take6Game
+    from game.take6 import Take6Game
     
-    target_penalty = 100  # Define target penalty for games
+    # Fixed parameters for deterministic testing
+    num_runs = 100
+    target_penalty = 100
     results_1v1 = []  # 1v1 against random
     results_1v2 = []  # 1v2 against two randoms
     
-    for seed in range(num_seeds):
-        print(f"\n--- Seed {seed + 1}/{num_seeds} ---")
+    # Create a predictable random generator initialized with seed 0
+    test_rng = random.Random(0)
+    
+    for run in range(num_runs):
+        print(f"\n--- Run {run + 1}/{num_runs} ---")
         
-        # Set random seed for reproducible tests
-        random.seed(seed)
-        np.random.seed(seed)
-        tf.random.set_seed(seed)
+        # Set predictable seeds for this run using our test RNG
+        # This ensures the same sequence of seeds across multiple test executions
+        run_seed = test_rng.randint(0, 999999)
+        
+        # Set all random seeds for completely deterministic behavior
+        random.seed(run_seed)
+        np.random.seed(run_seed)
+        tf.random.set_seed(run_seed)
         
         # Test 1: 1v1 against random player
         print("Testing 1v1 against random player...")
-        players_1v1 = [test_player, RandomPlayer(1)]
+        # Create deterministic random player using a separate RNG seeded from our test run
+        player_rng = random.Random(run_seed + 1000)  # Offset to ensure different sequence
+        random_player_1v1 = DeterministicRandomPlayer(1, player_rng)
+        players_1v1 = [test_player, random_player_1v1]
         game_1v1 = Take6Game(num_players=2, target_penalty=target_penalty)
         
         # Track cumulative penalties
@@ -245,7 +256,8 @@ def run_test_mode(checkpoint_path: str, num_seeds: int = 10):
         won_1v1 = test_score_1v1 < random_score_1v1
         
         results_1v1.append({
-            'seed': seed,
+            'run': run,
+            'run_seed': run_seed,
             'test_score': test_score_1v1,
             'opponent_score': random_score_1v1,
             'won': won_1v1,
@@ -256,7 +268,12 @@ def run_test_mode(checkpoint_path: str, num_seeds: int = 10):
         
         # Test 2: 1v2 against two random players
         print("Testing 1v2 against two random players...")
-        players_1v2 = [test_player, RandomPlayer(1), RandomPlayer(2)]
+        # Create deterministic random players using separate RNGs
+        player_rng_2 = random.Random(run_seed + 2000)
+        player_rng_3 = random.Random(run_seed + 3000)
+        random_player_2 = DeterministicRandomPlayer(1, player_rng_2)
+        random_player_3 = DeterministicRandomPlayer(2, player_rng_3)
+        players_1v2 = [test_player, random_player_2, random_player_3]
         game_1v2 = Take6Game(num_players=3, target_penalty=target_penalty)
         
         # Track cumulative penalties
@@ -303,7 +320,8 @@ def run_test_mode(checkpoint_path: str, num_seeds: int = 10):
         won_1v2 = test_score_1v2 < best_opponent_score
         
         results_1v2.append({
-            'seed': seed,
+            'run': run,
+            'run_seed': run_seed,
             'test_score': test_score_1v2,
             'opponent_scores': opponent_scores_1v2,
             'best_opponent': best_opponent_score,
@@ -325,7 +343,7 @@ def run_test_mode(checkpoint_path: str, num_seeds: int = 10):
     avg_rounds_1v1 = sum(r['rounds'] for r in results_1v1) / len(results_1v1)
     
     print(f"\n📊 1v1 vs Random Player:")
-    print(f"   Wins: {wins_1v1}/{num_seeds} ({wins_1v1/num_seeds*100:.1f}%)")
+    print(f"   Wins: {wins_1v1}/{num_runs} ({wins_1v1/num_runs*100:.1f}%)")
     print(f"   Average Score: {avg_score_1v1:.1f} vs {avg_opponent_1v1:.1f}")
     print(f"   Average Rounds: {avg_rounds_1v1:.1f}")
     
@@ -336,7 +354,7 @@ def run_test_mode(checkpoint_path: str, num_seeds: int = 10):
     avg_rounds_1v2 = sum(r['rounds'] for r in results_1v2) / len(results_1v2)
     
     print(f"\n📊 1v2 vs Two Random Players:")
-    print(f"   Wins: {wins_1v2}/{num_seeds} ({wins_1v2/num_seeds*100:.1f}%)")
+    print(f"   Wins: {wins_1v2}/{num_runs} ({wins_1v2/num_runs*100:.1f}%)")
     print(f"   Average Score: {avg_score_1v2:.1f} vs {avg_best_opponent_1v2:.1f} (best opponent)")
     print(f"   Average Rounds: {avg_rounds_1v2:.1f}")
     
@@ -344,8 +362,9 @@ def run_test_mode(checkpoint_path: str, num_seeds: int = 10):
     test_results = {
         'test_info': {
             'checkpoint_path': checkpoint_path,
-            'num_seeds': num_seeds,
+            'num_runs': num_runs,
             'target_penalty': target_penalty,
+            'deterministic': True,
             'timestamp': datetime.now().isoformat()
         },
         'results_1v1': results_1v1,
@@ -353,14 +372,14 @@ def run_test_mode(checkpoint_path: str, num_seeds: int = 10):
         'summary': {
             '1v1': {
                 'wins': wins_1v1,
-                'win_rate': wins_1v1/num_seeds,
+                'win_rate': wins_1v1/num_runs,
                 'avg_test_score': avg_score_1v1,
                 'avg_opponent_score': avg_opponent_1v1,
                 'avg_rounds': avg_rounds_1v1
             },
             '1v2': {
                 'wins': wins_1v2,
-                'win_rate': wins_1v2/num_seeds,
+                'win_rate': wins_1v2/num_runs,
                 'avg_test_score': avg_score_1v2,
                 'avg_best_opponent_score': avg_best_opponent_1v2,
                 'avg_rounds': avg_rounds_1v2
@@ -380,6 +399,36 @@ def run_test_mode(checkpoint_path: str, num_seeds: int = 10):
     
     return test_results
 
+class DeterministicRandomPlayer:
+    """Deterministic random player that uses a specific random generator for predictable behavior."""
+    
+    def __init__(self, player_id: int, rng: random.Random):
+        self.player_id = player_id
+        self.rng = rng  # Use provided random generator instead of global random
+    
+    def choose_action(self, game_state, player_id: int, 
+                     valid_actions) -> tuple:
+        """Choose a random valid action using the deterministic RNG."""
+        if not valid_actions:
+            raise ValueError("No valid actions available for player")
+        
+        # Choose random card using our RNG
+        card, valid_rows = self.rng.choice(valid_actions)
+        
+        # Choose random row if needed using our RNG
+        chosen_row = None
+        if valid_rows:
+            if len(valid_rows) > 1:
+                chosen_row = self.rng.choice(valid_rows)
+            else:
+                chosen_row = valid_rows[0] if valid_rows else None
+        
+        return card, chosen_row
+    
+    def observe_result(self, penalty_gained: int, cards_taken):
+        """Observe the result (random player doesn't learn)."""
+        pass
+
 def main():
     """Main function to run the complete tournament system."""
     parser = argparse.ArgumentParser(description="Take 6 Neural Network Tournament")
@@ -389,9 +438,7 @@ def main():
     parser.add_argument("--target-penalty", type=int, default=100, help="Target penalty points to end a match")
     parser.add_argument("--skip-training", action="store_true", help="Skip training phase")
     parser.add_argument("--analyze-only", action="store_true", help="Only run analysis on existing results")
-    parser.add_argument("--test-mode", action="store_true", help="Run test mode to evaluate a player against random opponents")
     parser.add_argument("--test-checkpoint", type=str, help="Path to checkpoint directory for test mode (e.g., checkpoints/session/cycle_001)")
-    parser.add_argument("--test-seeds", type=int, default=10, help="Number of random seeds for test mode")
     parser.add_argument("--load-checkpoint", type=str, help="Load models from checkpoint directory")
     parser.add_argument("--session-name", type=str, help="Name for this training session (also used for analysis-only mode)")
     
@@ -404,15 +451,8 @@ def main():
         analyze_results(args.session_name)
         return
     
-    if args.test_mode:
-        if not args.test_checkpoint:
-            print("❌ Test mode requires --test-checkpoint argument")
-            return
-        run_test_mode(args.test_checkpoint, args.test_seeds)
-        return
-    
-    if args.test_mode:
-        run_test_mode(args.test_mode, args.num_seeds)
+    if args.test_checkpoint:
+        run_test_mode(args.test_checkpoint)
         return
     
     # Generate session name if not provided
