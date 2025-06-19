@@ -129,7 +129,7 @@ class GameState:
             state.extend(row_vector.tolist())
 
         # Penalty points for all players (normalized) - always use 6 slots for consistency
-        penalty_vector = np.zeros(6, dtype=float)  # Always 6 slots for max players
+        penalty_vector = np.zeros(6, dtype=np.float64)  # Always 6 slots for max players
         for i in range(min(len(self.players_penalty_points), 6)):
             penalty_vector[i] = self.players_penalty_points[i] / 100.0  # Normalize
         state.extend(penalty_vector.tolist())
@@ -137,7 +137,7 @@ class GameState:
         # Round number (normalized)
         state.append(float(self.round_number) / 10.0)
 
-        return np.array(state, dtype=np.float32)
+        return np.array(state, dtype=np.float64)
 
     def is_game_over(self) -> bool:
         """Check if game is over (all cards played)."""

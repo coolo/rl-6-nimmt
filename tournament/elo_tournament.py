@@ -163,7 +163,7 @@ class Tournament:
 
                     valid_cards = game.get_valid_cards(i)
                     if valid_cards:  # Only if player has cards
-                        player_cards[i] = player.get_action(state, valid_cards, game_player_id=i, training=True)
+                        player_cards[i] = player.get_card(state, valid_cards, game_player_id=i, training=True)
 
                 if not player_cards:  # No more cards to play
                     break

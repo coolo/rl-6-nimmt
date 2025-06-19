@@ -59,10 +59,6 @@ class Take6Network(tf.keras.Model):
         self.card_dense1 = tf.keras.layers.Dense(hidden_size // 4, activation="relu", name="card_1")
         self.card_output = tf.keras.layers.Dense(104, activation="softmax", name="card_output")  # Probability for each card
 
-        # Row selection head (when must take a row)
-        self.row_dense1 = tf.keras.layers.Dense(64, activation="relu", name="row_1")
-        self.row_output = tf.keras.layers.Dense(4, activation="softmax", name="row_output")  # Probability for each row
-
         # Value estimation head
         self.value_dense1 = tf.keras.layers.Dense(64, activation="relu", name="value_1")
         self.value_output = tf.keras.layers.Dense(1, activation="tanh", name="value_output")  # Expected score
@@ -79,15 +75,11 @@ class Take6Network(tf.keras.Model):
         card_features = self.card_dense1(features)
         card_probs = self.card_output(card_features)
 
-        # Row selection
-        row_features = self.row_dense1(features)
-        row_probs = self.row_output(row_features)
-
         # Value estimation
         value_features = self.value_dense1(features)
         value = self.value_output(value_features)
 
-        return {"card_probs": card_probs, "row_probs": row_probs, "value": value}
+        return {"card_probs": card_probs, "value": value}
 
 
 class Take6Player:
@@ -101,9 +93,9 @@ class Take6Player:
         self.games_played = 0
         self.total_score = 0
 
-    def get_action(
+    def get_card(
         self, game_state: GameState, valid_cards: List[Card], game_player_id: Optional[int] = None, training: bool = False
-    ) -> Tuple[Card, Optional[int]]:
+    ) -> Card:
         """
         Choose an action based on current game state.
         Returns: (card_to_play, row_to_take_if_needed)
@@ -112,9 +104,10 @@ class Take6Player:
         player_id_for_state = game_player_id if game_player_id is not None else self.player_id
 
         # DEBUG: Render the current game state
-        self._debug_render_game_state(game_state, player_id_for_state, valid_cards)
+        #self._debug_render_game_state(game_state, player_id_for_state, valid_cards)
 
         if random.random() < self.epsilon and training:
+            print(f"Player {self.player_id} (Elo: {self.elo_rating:.2f}) - Random exploration")
             # Random exploration
             return self._random_card(valid_cards)
 
@@ -122,11 +115,13 @@ class Take6Player:
         state_vector = game_state.get_game_state_vector(player_id_for_state)
         state_vector = np.expand_dims(state_vector, axis=0)  # Add batch dimension
 
+        # Print non-zero elements of the state vector, scaled by 1000 and rounded to two decimals
+        #nonzero_map = {i: round(float(v) * 1000, 2) for i, v in enumerate(state_vector[0]) if v != 0}
+        #print(f"Player {self.player_id} (Elo: {self.elo_rating:.2f}) - Non-zero state vector entries (x1000): {nonzero_map}")
         predictions = self.model(state_vector, training=training)
 
         # Choose card based on network output and valid actions
         card_probs = predictions["card_probs"][0].numpy()
-        row_probs = predictions["row_probs"][0].numpy()
 
         # Filter to only valid cards and choose best one
         valid_card_indices = [card.number - 1 for card in valid_cards]
@@ -135,9 +130,12 @@ class Take6Player:
         masked_card_probs = np.zeros_like(card_probs)
         masked_card_probs[valid_card_indices] = card_probs[valid_card_indices]
 
+        #nonzero_probs = {idx + 1: round(float(prob) * 1000, 2) for idx, prob in enumerate(masked_card_probs) if prob > 0}
+        #print(f"Player {self.player_id} (Elo: {self.elo_rating:.2f}) - Card probabilities (non-zero, x1000): {nonzero_probs}")
+
+        # Print only non-zero probabilities for valid cards, scaled by 1000 and rounded to two decimals
         if np.sum(masked_card_probs) > 0:
-            masked_card_probs = masked_card_probs / np.sum(masked_card_probs)
-            chosen_card_idx = np.random.choice(104, p=masked_card_probs)
+            chosen_card_idx = np.argmax(masked_card_probs)
             chosen_card = None
             for card in valid_cards:
                 if card.number - 1 == chosen_card_idx:

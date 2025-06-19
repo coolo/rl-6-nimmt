@@ -225,8 +225,8 @@ def run_test_mode(checkpoint_path: str):
                 for i, player in enumerate(players_1v1):
                     valid_cards = game_1v1.get_valid_cards(i)
                     if valid_cards:
-                        card = player.get_action(state, valid_cards, game_player_id=i, training=False)
-                        print(f"Player {i} chose card {card}")
+                        card = player.get_card(state, valid_cards, game_player_id=i, training=False)
+                        #print(f"Player {i} chose card {card}")
                         player_cards[i] = card
 
                 if not player_cards:
@@ -279,7 +279,7 @@ def run_test_mode(checkpoint_path: str):
                 for i, player in enumerate(players_1v2):
                     valid_cards = game_1v2.get_valid_cards(i)
                     if valid_cards:
-                        player_cards[i] = player.get_action(state, valid_cards, game_player_id=i, training=False)
+                        player_cards[i] = player.get_card(state, valid_cards, game_player_id=i, training=False)
 
                 if not player_cards:
                     break
@@ -386,7 +386,7 @@ class DeterministicRandomPlayer:
         self.player_id = player_id
         self.rng = rng  # Use provided random generator instead of global random
 
-    def get_action(self, state, valid_cards, game_player_id: int, training=False) -> tuple:
+    def get_card(self, state, valid_cards, game_player_id: int, training=False):
         """Choose a random valid action using the deterministic RNG."""
         if not valid_cards:
             raise ValueError("No valid actions available for player")
