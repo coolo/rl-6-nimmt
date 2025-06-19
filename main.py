@@ -6,7 +6,10 @@ import sys
 import argparse
 import numpy as np
 import tensorflow as tf
+import random
+import json
 from typing import List
+from datetime import datetime
 
 # Configure TensorFlow/GPU settings early
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow warnings
@@ -134,6 +137,249 @@ def analyze_results(session_name: str = None):
         print("This might be because no training session with logging/checkpoints was found.")
         print("Please run a training session first with the new logging system.")
 
+def run_test_mode(checkpoint_path: str, num_seeds: int = 10):
+    """Run test mode to evaluate the best player from a checkpoint against random opponents with fixed seeds."""
+    print(f"\n🧪 Test Mode: Evaluating best player against random opponents")
+    print(f"Checkpoint: {checkpoint_path}")
+    print(f"Testing with {num_seeds} different seeds")
+    print("="*60)
+    
+    try:
+        # Import checkpoint manager
+        from training_logs.checkpoint_manager import CheckpointManager
+        
+        # Parse checkpoint path to get session and cycle
+        if '/' in checkpoint_path:
+            parts = checkpoint_path.split('/')
+            if 'checkpoints' in parts:
+                idx = parts.index('checkpoints')
+                if idx + 2 < len(parts):
+                    session_name = parts[idx + 1]
+                    checkpoint_name = parts[idx + 2]
+                else:
+                    raise ValueError("Invalid checkpoint path format")
+            else:
+                raise ValueError("Checkpoint path must contain 'checkpoints' directory")
+        else:
+            raise ValueError("Please provide full checkpoint path")
+        
+        # Load best player from checkpoint
+        checkpoint_manager = CheckpointManager(session_name=session_name)
+        best_players = checkpoint_manager.load_best_players(checkpoint_name, top_n=1)
+        
+        if not best_players:
+            print(f"❌ No players found in checkpoint {checkpoint_path}")
+            return
+        
+        test_player = best_players[0]
+        test_player.player_id = 0  # Set to 0 for consistency
+        
+        print(f"✅ Loaded best player from {checkpoint_path}")
+        print(f"   Player ID: {test_player.player_id}")
+        
+    except Exception as e:
+        print(f"❌ Failed to load player: {e}")
+        return
+    
+    # Import RandomPlayer from game module
+    from game.take6 import RandomPlayer, Take6Game
+    
+    target_penalty = 100  # Define target penalty for games
+    results_1v1 = []  # 1v1 against random
+    results_1v2 = []  # 1v2 against two randoms
+    
+    for seed in range(num_seeds):
+        print(f"\n--- Seed {seed + 1}/{num_seeds} ---")
+        
+        # Set random seed for reproducible tests
+        random.seed(seed)
+        np.random.seed(seed)
+        tf.random.set_seed(seed)
+        
+        # Test 1: 1v1 against random player
+        print("Testing 1v1 against random player...")
+        players_1v1 = [test_player, RandomPlayer(1)]
+        game_1v1 = Take6Game(num_players=2, target_penalty=target_penalty)
+        
+        # Track cumulative penalties
+        cumulative_penalties_1v1 = [0, 0]
+        game_count = 0
+        max_games = 50
+        
+        # Keep playing games until someone reaches target penalty
+        while max(cumulative_penalties_1v1) < target_penalty and game_count < max_games:
+            state = game_1v1.reset()
+            game_count += 1
+            
+            # Play rounds until all cards are used
+            for round_num in range(10):
+                if state.is_game_over():
+                    break
+                
+                player_actions = {}
+                
+                # Get actions from both players
+                for i, player in enumerate(players_1v1):
+                    valid_actions = game_1v1.get_valid_actions(i)
+                    if valid_actions:
+                        if hasattr(player, 'get_action'):
+                            # Neural network player
+                            card, row = player.get_action(state, valid_actions, game_player_id=i, training=False)
+                        else:
+                            # Random player
+                            card, row = player.choose_action(state, i, valid_actions)
+                        player_actions[i] = (card, row)
+                
+                if not player_actions:
+                    break
+                
+                # Execute round
+                round_results = game_1v1.play_round(player_actions)
+                
+                # Update cumulative penalties
+                for i, (penalty, _) in round_results.items():
+                    cumulative_penalties_1v1[i] += penalty
+        
+        test_score_1v1 = cumulative_penalties_1v1[0]  # Test player is index 0
+        random_score_1v1 = cumulative_penalties_1v1[1]
+        won_1v1 = test_score_1v1 < random_score_1v1
+        
+        results_1v1.append({
+            'seed': seed,
+            'test_score': test_score_1v1,
+            'opponent_score': random_score_1v1,
+            'won': won_1v1,
+            'rounds': game_count
+        })
+        
+        print(f"  1v1 Result: Test={test_score_1v1}, Random={random_score_1v1}, Won={won_1v1}")
+        
+        # Test 2: 1v2 against two random players
+        print("Testing 1v2 against two random players...")
+        players_1v2 = [test_player, RandomPlayer(1), RandomPlayer(2)]
+        game_1v2 = Take6Game(num_players=3, target_penalty=target_penalty)
+        
+        # Track cumulative penalties
+        cumulative_penalties_1v2 = [0, 0, 0]
+        game_count = 0
+        
+        # Keep playing games until someone reaches target penalty
+        while max(cumulative_penalties_1v2) < target_penalty and game_count < max_games:
+            state = game_1v2.reset()
+            game_count += 1
+            
+            # Play rounds until all cards are used
+            for round_num in range(10):
+                if state.is_game_over():
+                    break
+                
+                player_actions = {}
+                
+                # Get actions from all players
+                for i, player in enumerate(players_1v2):
+                    valid_actions = game_1v2.get_valid_actions(i)
+                    if valid_actions:
+                        if hasattr(player, 'get_action'):
+                            # Neural network player
+                            card, row = player.get_action(state, valid_actions, game_player_id=i, training=False)
+                        else:
+                            # Random player
+                            card, row = player.choose_action(state, i, valid_actions)
+                        player_actions[i] = (card, row)
+                
+                if not player_actions:
+                    break
+                
+                # Execute round
+                round_results = game_1v2.play_round(player_actions)
+                
+                # Update cumulative penalties
+                for i, (penalty, _) in round_results.items():
+                    cumulative_penalties_1v2[i] += penalty
+        
+        test_score_1v2 = cumulative_penalties_1v2[0]  # Test player is index 0
+        opponent_scores_1v2 = cumulative_penalties_1v2[1:]
+        best_opponent_score = min(opponent_scores_1v2)
+        won_1v2 = test_score_1v2 < best_opponent_score
+        
+        results_1v2.append({
+            'seed': seed,
+            'test_score': test_score_1v2,
+            'opponent_scores': opponent_scores_1v2,
+            'best_opponent': best_opponent_score,
+            'won': won_1v2,
+            'rounds': game_count
+        })
+        
+        print(f"  1v2 Result: Test={test_score_1v2}, Randoms={opponent_scores_1v2}, Won={won_1v2}")
+    
+    # Analyze and report results
+    print(f"\n" + "="*60)
+    print("TEST RESULTS SUMMARY")
+    print("="*60)
+    
+    # 1v1 Results
+    wins_1v1 = sum(1 for r in results_1v1 if r['won'])
+    avg_score_1v1 = sum(r['test_score'] for r in results_1v1) / len(results_1v1)
+    avg_opponent_1v1 = sum(r['opponent_score'] for r in results_1v1) / len(results_1v1)
+    avg_rounds_1v1 = sum(r['rounds'] for r in results_1v1) / len(results_1v1)
+    
+    print(f"\n📊 1v1 vs Random Player:")
+    print(f"   Wins: {wins_1v1}/{num_seeds} ({wins_1v1/num_seeds*100:.1f}%)")
+    print(f"   Average Score: {avg_score_1v1:.1f} vs {avg_opponent_1v1:.1f}")
+    print(f"   Average Rounds: {avg_rounds_1v1:.1f}")
+    
+    # 1v2 Results  
+    wins_1v2 = sum(1 for r in results_1v2 if r['won'])
+    avg_score_1v2 = sum(r['test_score'] for r in results_1v2) / len(results_1v2)
+    avg_best_opponent_1v2 = sum(r['best_opponent'] for r in results_1v2) / len(results_1v2)
+    avg_rounds_1v2 = sum(r['rounds'] for r in results_1v2) / len(results_1v2)
+    
+    print(f"\n📊 1v2 vs Two Random Players:")
+    print(f"   Wins: {wins_1v2}/{num_seeds} ({wins_1v2/num_seeds*100:.1f}%)")
+    print(f"   Average Score: {avg_score_1v2:.1f} vs {avg_best_opponent_1v2:.1f} (best opponent)")
+    print(f"   Average Rounds: {avg_rounds_1v2:.1f}")
+    
+    # Save detailed results
+    test_results = {
+        'test_info': {
+            'checkpoint_path': checkpoint_path,
+            'num_seeds': num_seeds,
+            'target_penalty': target_penalty,
+            'timestamp': datetime.now().isoformat()
+        },
+        'results_1v1': results_1v1,
+        'results_1v2': results_1v2,
+        'summary': {
+            '1v1': {
+                'wins': wins_1v1,
+                'win_rate': wins_1v1/num_seeds,
+                'avg_test_score': avg_score_1v1,
+                'avg_opponent_score': avg_opponent_1v1,
+                'avg_rounds': avg_rounds_1v1
+            },
+            '1v2': {
+                'wins': wins_1v2,
+                'win_rate': wins_1v2/num_seeds,
+                'avg_test_score': avg_score_1v2,
+                'avg_best_opponent_score': avg_best_opponent_1v2,
+                'avg_rounds': avg_rounds_1v2
+            }
+        }
+    }
+    
+    # Save results to file
+    os.makedirs("test_results", exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    results_file = f"test_results/test_results_{timestamp}.json"
+    
+    with open(results_file, 'w') as f:
+        json.dump(test_results, f, indent=2, default=str)
+    
+    print(f"\n💾 Detailed results saved to: {results_file}")
+    
+    return test_results
+
 def main():
     """Main function to run the complete tournament system."""
     parser = argparse.ArgumentParser(description="Take 6 Neural Network Tournament")
@@ -143,6 +389,9 @@ def main():
     parser.add_argument("--target-penalty", type=int, default=100, help="Target penalty points to end a match")
     parser.add_argument("--skip-training", action="store_true", help="Skip training phase")
     parser.add_argument("--analyze-only", action="store_true", help="Only run analysis on existing results")
+    parser.add_argument("--test-mode", action="store_true", help="Run test mode to evaluate a player against random opponents")
+    parser.add_argument("--test-checkpoint", type=str, help="Path to checkpoint directory for test mode (e.g., checkpoints/session/cycle_001)")
+    parser.add_argument("--test-seeds", type=int, default=10, help="Number of random seeds for test mode")
     parser.add_argument("--load-checkpoint", type=str, help="Load models from checkpoint directory")
     parser.add_argument("--session-name", type=str, help="Name for this training session (also used for analysis-only mode)")
     
@@ -155,9 +404,19 @@ def main():
         analyze_results(args.session_name)
         return
     
+    if args.test_mode:
+        if not args.test_checkpoint:
+            print("❌ Test mode requires --test-checkpoint argument")
+            return
+        run_test_mode(args.test_checkpoint, args.test_seeds)
+        return
+    
+    if args.test_mode:
+        run_test_mode(args.test_mode, args.num_seeds)
+        return
+    
     # Generate session name if not provided
     if args.session_name is None:
-        from datetime import datetime
         args.session_name = f"tournament_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     print(f"🎲 Take 6 Neural Network Tournament System 🎲")

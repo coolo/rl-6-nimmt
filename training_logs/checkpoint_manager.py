@@ -194,7 +194,7 @@ class CheckpointManager:
         # Create new player
         input_size = 104 + (4 * 6 * 104) + 6 + 1  # Should match your model architecture
         model = Take6Network(input_size=input_size)
-        player = Take6Player(player_data['player_id'], model)
+        player = Take6Player(model, player_data['player_id'])
         
         # Restore state
         player.elo_rating = player_data['elo_rating']
