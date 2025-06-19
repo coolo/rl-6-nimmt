@@ -64,15 +64,18 @@ class AdaptiveTraining:
             player.epsilon = min(0.3, player.epsilon + 0.05)
             print(f"Increased exploration for player {player.player_id} to {player.epsilon:.3f}")
     
-    def run_adaptive_cycle(self, num_games: int = 100, train_after_games: bool = True):
-        """Run one cycle of adaptive training."""
-        print(f"Running adaptive training cycle with {num_games} games...")
+    def run_adaptive_cycle(self, num_matches: int = 50, target_penalty: int = 100, 
+                          train_after_matches: bool = True):
+        """Run one cycle of adaptive training with new match structure."""
+        print(f"Running adaptive training cycle with {num_matches} matches (target: {target_penalty} penalty)...")
         
-        # Run tournament games
-        results = self.tournament.run_random_games(num_games, verbose=False)
+        # Run tournament matches
+        results = self.tournament.run_random_matches(
+            num_matches, target_penalty=target_penalty, verbose=False
+        )
         
         # Train models based on results
-        if train_after_games:
+        if train_after_matches:
             self.trainer.train_from_tournament(results)
         
         # Adapt struggling players

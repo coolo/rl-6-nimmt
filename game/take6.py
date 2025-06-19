@@ -152,8 +152,9 @@ class GameState:
 class Take6Game:
     """Main game controller for Take 6."""
     
-    def __init__(self, num_players: int = 4):
+    def __init__(self, num_players: int = 4, target_penalty: int = 100):
         self.num_players = num_players
+        self.target_penalty = target_penalty
         self.reset()
     
     def reset(self) -> GameState:
@@ -161,6 +162,52 @@ class Take6Game:
         self.state = GameState(self.num_players)
         self.state.deal_cards()
         return self.state
+    
+    def is_game_finished(self) -> bool:
+        """Check if any player has reached the target penalty points."""
+        return any(penalty >= self.target_penalty for penalty in self.state.players_penalty_points)
+    
+    def play_complete_game(self) -> Dict:
+        """Play a complete game until someone reaches target penalty points."""
+        game_log = {
+            'rounds': [],
+            'final_scores': [],
+            'winner': -1,
+            'total_rounds': 0
+        }
+        
+        round_count = 0
+        
+        while not self.is_game_finished():
+            # Check if we need to deal new cards (start new hand)
+            if self.state.is_game_over():
+                self.state.deal_cards()
+                round_count = 0
+            
+            # Play one round (all 10 cards from current hand)
+            for round_in_hand in range(10):
+                if self.is_game_finished():
+                    break
+                    
+                round_count += 1
+                # This would need player actions - we'll handle this in the tournament
+                break
+            
+            # If we completed a hand without anyone reaching target, continue
+            if not self.is_game_finished() and self.state.is_game_over():
+                continue
+            else:
+                break
+        
+        game_log['final_scores'] = self.state.players_penalty_points.copy()
+        game_log['winner'] = self.get_winner_by_lowest_penalty()
+        game_log['total_rounds'] = round_count
+        
+        return game_log
+    
+    def get_winner_by_lowest_penalty(self) -> int:
+        """Get winner as player with lowest penalty points when game ends."""
+        return int(np.argmin(self.state.players_penalty_points))
     
     def play_round(self, player_actions: Dict[int, Tuple[Card, Optional[int]]]) -> Dict[int, Tuple[int, List[Card]]]:
         """
@@ -264,7 +311,8 @@ class RandomPlayer:
                      valid_actions: List[Tuple[Card, List[int]]]) -> Tuple[Card, Optional[int]]:
         """Choose a random valid action."""
         if not valid_actions:
-            return None, None
+            # This shouldn't happen in normal gameplay, but return a safe default
+            raise ValueError("No valid actions available for player")
         
         # Choose random card
         card, valid_rows = random.choice(valid_actions)

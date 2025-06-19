@@ -49,9 +49,10 @@ def create_players(num_players: int = 40) -> List[Take6Player]:
     return players
 
 def run_training_phase(players: List[Take6Player], num_cycles: int = 10, 
-                      games_per_cycle: int = 200):
-    """Run the main training phase."""
-    print(f"\nStarting training phase: {num_cycles} cycles, {games_per_cycle} games per cycle")
+                      matches_per_cycle: int = 100, target_penalty: int = 100):
+    """Run the main training phase with new match structure."""
+    print(f"\nStarting training phase: {num_cycles} cycles, {matches_per_cycle} matches per cycle")
+    print(f"Target penalty points per match: {target_penalty}")
     
     # Create tournament system
     elo_system = EloSystem(k_factor=32, initial_rating=1500.0)
@@ -65,10 +66,11 @@ def run_training_phase(players: List[Take6Player], num_cycles: int = 10,
     for cycle in range(num_cycles):
         print(f"\n--- Training Cycle {cycle + 1}/{num_cycles} ---")
         
-        # Run games and training
+        # Run matches and training
         cycle_results = adaptive_trainer.run_adaptive_cycle(
-            num_games=games_per_cycle, 
-            train_after_games=True
+            num_matches=matches_per_cycle, 
+            target_penalty=target_penalty,
+            train_after_matches=True
         )
         all_results.extend(cycle_results)
         
@@ -85,9 +87,10 @@ def run_training_phase(players: List[Take6Player], num_cycles: int = 10,
     return all_results, tournament, adaptive_trainer
 
 def run_evolutionary_phase(players: List[Take6Player], num_generations: int = 5,
-                          games_per_generation: int = 500):
-    """Run evolutionary tournament phase."""
+                          matches_per_generation: int = 250, target_penalty: int = 100):
+    """Run evolutionary tournament phase with new match structure."""
     print(f"\nStarting evolutionary phase: {num_generations} generations")
+    print(f"Target penalty points per match: {target_penalty}")
     
     # Create evolutionary tournament
     elo_system = EloSystem(k_factor=40, initial_rating=1500.0)
@@ -100,8 +103,10 @@ def run_evolutionary_phase(players: List[Take6Player], num_generations: int = 5,
     for generation in range(num_generations):
         print(f"\n--- Generation {generation + 1}/{num_generations} ---")
         
-        # Run tournament games
-        results = evo_tournament.run_random_games(games_per_generation, verbose=False)
+        # Run tournament matches
+        results = evo_tournament.run_random_matches(
+            matches_per_generation, target_penalty=target_penalty, verbose=False
+        )
         
         # Print current leaderboard
         evo_tournament.print_leaderboard(top_n=15)
@@ -117,15 +122,18 @@ def run_evolutionary_phase(players: List[Take6Player], num_generations: int = 5,
     
     return evo_tournament
 
-def run_final_tournament(players: List[Take6Player], num_games: int = 1000):
-    """Run final comprehensive tournament."""
-    print(f"\nRunning final tournament with {num_games} games...")
+def run_final_tournament(players: List[Take6Player], num_matches: int = 500, 
+                        target_penalty: int = 100):
+    """Run final comprehensive tournament with new match structure."""
+    print(f"\nRunning final tournament with {num_matches} matches (target: {target_penalty} penalty)...")
     
     elo_system = EloSystem(k_factor=16, initial_rating=1500.0)  # Lower K for stability
     final_tournament = Tournament(players, elo_system)
     
     # Run comprehensive tournament
-    results = final_tournament.run_random_games(num_games, verbose=True)
+    results = final_tournament.run_random_matches(
+        num_matches, target_penalty=target_penalty, verbose=True
+    )
     
     # Print final standings
     print("\n" + "="*60)
@@ -168,10 +176,11 @@ def main():
     parser = argparse.ArgumentParser(description="Take 6 Neural Network Tournament")
     parser.add_argument("--players", type=int, default=40, help="Number of players")
     parser.add_argument("--training-cycles", type=int, default=10, help="Number of training cycles")
-    parser.add_argument("--games-per-cycle", type=int, default=200, help="Games per training cycle")
+    parser.add_argument("--matches-per-cycle", type=int, default=100, help="Matches per training cycle")
     parser.add_argument("--evolutionary-generations", type=int, default=5, help="Number of evolutionary generations")
-    parser.add_argument("--games-per-generation", type=int, default=500, help="Games per evolutionary generation")
-    parser.add_argument("--final-games", type=int, default=1000, help="Number of final tournament games")
+    parser.add_argument("--matches-per-generation", type=int, default=250, help="Matches per evolutionary generation")
+    parser.add_argument("--final-matches", type=int, default=500, help="Number of final tournament matches")
+    parser.add_argument("--target-penalty", type=int, default=100, help="Target penalty points to end a match")
     parser.add_argument("--skip-training", action="store_true", help="Skip training phase")
     parser.add_argument("--skip-evolution", action="store_true", help="Skip evolutionary phase")
     parser.add_argument("--analyze-only", action="store_true", help="Only run analysis on existing results")
@@ -202,7 +211,7 @@ def main():
     # Training phase
     if not args.skip_training:
         training_results, tournament, adaptive_trainer = run_training_phase(
-            players, args.training_cycles, args.games_per_cycle
+            players, args.training_cycles, args.matches_per_cycle, args.target_penalty
         )
         
         # Save trained models
@@ -211,12 +220,12 @@ def main():
     # Evolutionary phase
     if not args.skip_evolution:
         evo_tournament = run_evolutionary_phase(
-            players, args.evolutionary_generations, args.games_per_generation
+            players, args.evolutionary_generations, args.matches_per_generation, args.target_penalty
         )
         players = evo_tournament.players  # Use evolved players
     
     # Final tournament
-    final_tournament, final_results = run_final_tournament(players, args.final_games)
+    final_tournament, final_results = run_final_tournament(players, args.final_matches, args.target_penalty)
     
     # Analysis
     analyze_results()

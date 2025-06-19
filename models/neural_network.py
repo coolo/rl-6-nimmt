@@ -182,27 +182,57 @@ class ModelFactory:
     """Factory for creating and managing neural network models."""
     
     @staticmethod
-    def create_model(model_id: int, input_size: int = 2605) -> Take6Network:
-        """Create a new model with random initialization."""
-        return Take6Network(input_size=input_size, name=f"Model_{model_id}")
+    def create_model(model_id: int, input_size: int = 2605, 
+                    hidden_size_base: int = 512, diversity_factor: float = 0.3) -> Take6Network:
+        """Create a new model with some architectural diversity."""
+        # Add some variation to hidden layer sizes
+        hidden_size = int(hidden_size_base * (1.0 + diversity_factor * (random.random() - 0.5)))
+        hidden_size = max(256, min(1024, hidden_size))  # Keep within reasonable bounds
+        
+        model = Take6Network(input_size=input_size, hidden_size=hidden_size, name=f"Model_{model_id}")
+        
+        # Add some random initialization variation
+        for layer in model.layers:
+            if hasattr(layer, 'kernel_initializer'):
+                # Slightly vary the initialization scale
+                scale_factor = 1.0 + 0.2 * (random.random() - 0.5)
+                if hasattr(layer, 'kernel'):
+                    # Apply small random perturbation to initial weights
+                    initial_weights = layer.get_weights()
+                    if initial_weights:
+                        perturbed_weights = []
+                        for weight in initial_weights:
+                            noise = np.random.normal(0, 0.01 * scale_factor, weight.shape)
+                            perturbed_weights.append(weight + noise)
+                        layer.set_weights(perturbed_weights)
+        
+        return model
     
     @staticmethod
     def create_population(population_size: int, input_size: int = 2605) -> List[Take6Player]:
-        """Create a population of players with neural networks."""
+        """Create a population of players with diverse neural networks."""
         players = []
         
         for i in range(population_size):
-            model = ModelFactory.create_model(i, input_size)
-            # Add some variation in exploration rates
-            epsilon = 0.05 + 0.1 * (i / population_size)  # Range from 0.05 to 0.15
+            # Create diverse models
+            model = ModelFactory.create_model(i, input_size, diversity_factor=0.4)
+            
+            # Add variation in exploration rates (epsilon)
+            epsilon = 0.05 + 0.15 * (i / population_size)  # Range from 0.05 to 0.20
+            
+            # Add small variation in starting Elo ratings to encourage diversity
+            elo_variation = random.uniform(-50, 50)
+            
             player = Take6Player(model, i, epsilon)
+            player.elo_rating += elo_variation
             players.append(player)
         
         return players
     
     @staticmethod
-    def mutate_model(parent_model: Take6Network, mutation_rate: float = 0.1) -> Take6Network:
-        """Create a mutated copy of a model."""
+    def mutate_model(parent_model: Take6Network, mutation_rate: float = 0.1, 
+                    mutation_strength: float = 0.02) -> Take6Network:
+        """Create a mutated copy of a model with more sophisticated mutations."""
         new_model = Take6Network(parent_model.input_size, parent_model.hidden_size)
         
         # Copy weights from parent
@@ -212,12 +242,50 @@ class ModelFactory:
         for weight_matrix in parent_weights:
             new_weight = weight_matrix.copy()
             
-            # Add random mutations
+            # Apply mutations
             if random.random() < mutation_rate:
-                noise = np.random.normal(0, 0.01, weight_matrix.shape)
-                new_weight += noise
+                # Different types of mutations
+                mutation_type = random.choice(['gaussian', 'dropout', 'scaling'])
+                
+                if mutation_type == 'gaussian':
+                    # Gaussian noise mutation
+                    noise = np.random.normal(0, mutation_strength, weight_matrix.shape)
+                    new_weight += noise
+                elif mutation_type == 'dropout':
+                    # Random dropout of some weights
+                    mask = np.random.random(weight_matrix.shape) > 0.1
+                    new_weight *= mask
+                elif mutation_type == 'scaling':
+                    # Scale some weights
+                    scale = 1.0 + random.uniform(-0.1, 0.1)
+                    new_weight *= scale
             
             new_weights.append(new_weight)
         
         new_model.set_weights(new_weights)
         return new_model
+    
+    @staticmethod
+    def crossover_models(parent1: Take6Network, parent2: Take6Network, 
+                        child_id: int) -> Take6Network:
+        """Create a child model by crossing over two parent models."""
+        child_model = Take6Network(parent1.input_size, parent1.hidden_size, name=f"Child_{child_id}")
+        
+        parent1_weights = parent1.get_weights()
+        parent2_weights = parent2.get_weights()
+        child_weights = []
+        
+        for w1, w2 in zip(parent1_weights, parent2_weights):
+            # Random blend of parent weights
+            alpha = random.random()
+            child_weight = alpha * w1 + (1 - alpha) * w2
+            
+            # Add small mutation
+            if random.random() < 0.1:
+                noise = np.random.normal(0, 0.01, child_weight.shape)
+                child_weight += noise
+            
+            child_weights.append(child_weight)
+        
+        child_model.set_weights(child_weights)
+        return child_model

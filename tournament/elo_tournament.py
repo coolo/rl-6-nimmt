@@ -82,91 +82,141 @@ class Tournament:
         self.tournament_history = []
         self.round_number = 0
     
-    def run_single_game(self, game_players: List[Take6Player], verbose: bool = False) -> Dict:
-        """Run a single game with the given players."""
-        game = Take6Game(num_players=len(game_players))
-        state = game.reset()
+    def run_single_match(self, game_players: List[Take6Player], min_players: int = 2, 
+                        max_players: int = 6, target_penalty: int = 100, verbose: bool = False) -> Dict:
+        """
+        Run a single match with the given players until someone reaches target penalty points.
+        """
+        num_players = len(game_players)
+        if num_players < min_players or num_players > max_players:
+            raise ValueError(f"Invalid number of players: {num_players}. Must be between {min_players} and {max_players}")
         
-        game_log = {
+        game = Take6Game(num_players=num_players, target_penalty=target_penalty)
+        
+        match_log = {
             'players': [p.player_id for p in game_players],
             'initial_elo': [p.elo_rating for p in game_players],
-            'rounds': []
+            'games': [],
+            'target_penalty': target_penalty
         }
         
-        # Play 10 rounds (all cards)
-        for round_num in range(10):
-            player_actions = {}
+        game_count = 0
+        
+        # Keep playing games until someone reaches the target penalty
+        while True:
+            state = game.reset()
+            game_count += 1
             
-            # Get action from each player
-            for i, player in enumerate(game_players):
-                valid_actions = game.get_valid_actions(i)
-                # Pass the game player index (i) instead of player's own ID
-                card, row = player.get_action(state, valid_actions, game_player_id=i, training=True)
-                player_actions[i] = (card, row)
-            
-            # Execute round
-            round_results = game.play_round(player_actions)
-            
-            round_log = {
-                'round': round_num,
-                'actions': {int(i): (int(card.number), int(row) if row is not None else None) 
-                          for i, (card, row) in player_actions.items()},
-                'results': {int(i): (int(penalty), [int(c.number) for c in cards]) 
-                          for i, (penalty, cards) in round_results.items()},
-                'penalty_totals': [int(x) for x in state.players_penalty_points]
+            game_log = {
+                'game_number': game_count,
+                'rounds': [],
+                'penalty_totals_start': [int(x) for x in state.players_penalty_points]
             }
-            game_log['rounds'].append(round_log)
             
+            # Play rounds until all cards are used (one complete hand)
+            for round_num in range(10):
+                if state.is_game_over():
+                    break
+                    
+                player_actions = {}
+                
+                # Get action from each player
+                for i, player in enumerate(game_players):
+                    valid_actions = game.get_valid_actions(i)
+                    if valid_actions:  # Only if player has cards
+                        card, row = player.get_action(state, valid_actions, game_player_id=i, training=True)
+                        player_actions[i] = (card, row)
+                
+                if not player_actions:  # No more cards to play
+                    break
+                
+                # Execute round
+                round_results = game.play_round(player_actions)
+                
+                round_log = {
+                    'round': round_num,
+                    'actions': {int(i): (int(card.number), int(row) if row is not None else None) 
+                              for i, (card, row) in player_actions.items()},
+                    'results': {int(i): (int(penalty), [int(c.number) for c in cards]) 
+                              for i, (penalty, cards) in round_results.items()},
+                    'penalty_totals': [int(x) for x in state.players_penalty_points]
+                }
+                game_log['rounds'].append(round_log)
+                
+                if verbose:
+                    print(f"Round {round_num + 1}: Penalty totals: {state.players_penalty_points}")
+            
+            game_log['penalty_totals_end'] = [int(x) for x in state.players_penalty_points]
+            match_log['games'].append(game_log)
+            
+            # Check if anyone has reached the target penalty
+            if any(penalty >= target_penalty for penalty in state.players_penalty_points):
+                break
+                
             if verbose:
-                print(f"Round {round_num + 1}: Penalty totals: {state.players_penalty_points}")
+                print(f"Game {game_count} completed. Current penalties: {state.players_penalty_points}")
         
-        # Update Elo ratings
-        self.elo_system.update_ratings(game_players, state.players_penalty_points)
+        # Update Elo ratings based on final match result
+        final_penalties = state.players_penalty_points
+        self.elo_system.update_ratings(game_players, final_penalties)
         
-        game_log['final_scores'] = [int(x) for x in state.players_penalty_points]
-        game_log['final_elo'] = [float(p.elo_rating) for p in game_players]
-        game_log['winner'] = int(state.get_winner())
-        
-        return game_log
-    
-    def run_round_robin(self, games_per_matchup: int = 1, verbose: bool = False) -> List[Dict]:
-        """Run a round-robin tournament where every combination of 4 players plays."""
-        results = []
-        
-        # Generate all combinations of 4 players
-        from itertools import combinations
-        matchups = list(combinations(self.players, 4))
+        match_log['final_scores'] = [int(x) for x in final_penalties]
+        match_log['final_elo'] = [float(p.elo_rating) for p in game_players]
+        match_log['winner'] = int(np.argmin(final_penalties))  # Winner has lowest penalty
+        match_log['total_games'] = game_count
         
         if verbose:
-            print(f"Running round-robin with {len(matchups)} matchups, {games_per_matchup} games each")
+            print(f"Match completed after {game_count} games. Winner: Player {match_log['winner']}")
         
-        # Run games for each matchup
-        for matchup in tqdm(matchups, desc="Tournament Progress"):
-            for game_num in range(games_per_matchup):
-                game_result = self.run_single_game(list(matchup), verbose)
-                game_result['matchup_id'] = len(results)
-                game_result['game_in_matchup'] = game_num
-                results.append(game_result)
+        return match_log
+    
+    def run_round_robin(self, matches_per_matchup: int = 1, target_penalty: int = 100,
+                       players_per_match: int = 4, verbose: bool = False) -> List[Dict]:
+        """Run a round-robin tournament where every combination of players competes."""
+        results = []
+        
+        # Generate all combinations of players for matches
+        from itertools import combinations
+        matchups = list(combinations(self.players, players_per_match))
+        
+        if verbose:
+            print(f"Running round-robin with {len(matchups)} matchups, {matches_per_matchup} matches each")
+        
+        # Run matches for each matchup
+        for matchup in tqdm(matchups, desc="Round-Robin Progress"):
+            for match_num in range(matches_per_matchup):
+                match_result = self.run_single_match(
+                    list(matchup), players_per_match, players_per_match, target_penalty, verbose
+                )
+                match_result['matchup_id'] = len(results)
+                match_result['match_in_matchup'] = match_num
+                results.append(match_result)
         
         self.tournament_history.extend(results)
         self.round_number += 1
         
         return results
     
-    def run_random_games(self, num_games: int, players_per_game: int = 4, verbose: bool = False) -> List[Dict]:
-        """Run random games with randomly selected players."""
+    def run_random_matches(self, num_matches: int, target_penalty: int = 100, 
+                          min_players: int = 2, max_players: int = 6, verbose: bool = False) -> List[Dict]:
+        """Run random matches with randomly selected players and variable match sizes."""
         results = []
         
         if verbose:
-            print(f"Running {num_games} random games with {players_per_game} players each")
+            print(f"Running {num_matches} random matches (target: {target_penalty} penalty points)")
         
-        for game_num in tqdm(range(num_games), desc="Random Games"):
-            # Randomly select players
-            game_players = random.sample(self.players, players_per_game)
+        for match_num in tqdm(range(num_matches), desc="Tournament Matches"):
+            # Randomly choose number of players for this match
+            num_players = random.randint(min_players, max_players)
             
-            game_result = self.run_single_game(game_players, verbose)
-            game_result['game_id'] = game_num
-            results.append(game_result)
+            # Randomly select players
+            match_players = random.sample(self.players, num_players)
+            
+            match_result = self.run_single_match(
+                match_players, min_players, max_players, target_penalty, verbose
+            )
+            match_result['match_id'] = match_num
+            results.append(match_result)
         
         self.tournament_history.extend(results)
         
@@ -236,6 +286,8 @@ class EvolutionaryTournament(Tournament):
         self.mutation_rate = mutation_rate
         self.generation = 0
     
+    # Inherit run_random_matches from parent Tournament class
+    
     def evolve_population(self):
         """Evolve the population based on current Elo ratings."""
         from models.neural_network import ModelFactory
@@ -253,25 +305,39 @@ class EvolutionaryTournament(Tournament):
         # Create new population
         new_players = []
         
-        # Keep survivors
+        # Keep survivors (with some Elo decay to prevent stagnation)
         for i, survivor in enumerate(survivors):
             # Reset some stats but keep Elo rating
             new_player = Take6Player(survivor.model, i, survivor.epsilon)
-            new_player.elo_rating = survivor.elo_rating * 0.9  # Slight decay
+            new_player.elo_rating = survivor.elo_rating * 0.95  # Slight decay
             new_player.games_played = 0
             new_player.total_score = 0
             new_players.append(new_player)
         
-        # Create offspring through mutation
+        # Create offspring through mutation and crossover
         while len(new_players) < len(self.players):
-            parent = random.choice(survivors)
-            mutated_model = ModelFactory.mutate_model(parent.model, self.mutation_rate)
+            if len(survivors) >= 2 and random.random() < 0.3:
+                # Crossover between two random survivors
+                parent1, parent2 = random.sample(survivors, 2)
+                child_model = ModelFactory.crossover_models(
+                    parent1.model, parent2.model, len(new_players)
+                )
+                # Child inherits average characteristics
+                epsilon = (parent1.epsilon + parent2.epsilon) / 2
+                elo = (parent1.elo_rating + parent2.elo_rating) / 2 * 0.8
+            else:
+                # Mutation of single parent
+                parent = random.choice(survivors)
+                child_model = ModelFactory.mutate_model(parent.model, self.mutation_rate)
+                epsilon = parent.epsilon * (1 + random.uniform(-0.1, 0.1))  # Small variation
+                elo = parent.elo_rating * 0.8  # Offspring start lower
             
-            new_player = Take6Player(mutated_model, len(new_players), parent.epsilon)
-            new_player.elo_rating = parent.elo_rating * 0.8  # Offspring start lower
+            new_player = Take6Player(child_model, len(new_players), epsilon)
+            new_player.elo_rating = elo
             new_players.append(new_player)
         
         self.players = new_players
         self.generation += 1
         
+        print(f"New generation created with {len(new_players)} players")
         return new_players
