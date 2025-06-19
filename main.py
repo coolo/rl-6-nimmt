@@ -19,7 +19,7 @@ from game.take6 import Take6Game
 from models.neural_network import Take6Player, ModelFactory
 from tournament.elo_tournament import Tournament, EvolutionaryTournament, EloSystem
 from training.self_play import AdaptiveTraining
-from analysis.visualize_results import TournamentAnalyzer
+from analysis.checkpoint_analyzer import CheckpointAnalyzer
 
 def setup_tensorflow():
     """Configure TensorFlow settings."""
@@ -171,29 +171,27 @@ def run_final_tournament(players: List[Take6Player], num_matches: int = 500,
     
     return final_tournament, results
 
-def analyze_results():
-    """Analyze and visualize tournament results."""
+def analyze_results(session_name: str = None):
+    """Analyze and visualize tournament results using checkpoint data."""
     print("\nGenerating analysis and visualizations...")
     
-    # Find the most recent results file
-    results_files = []
-    for root, dirs, files in os.walk("."):
-        for file in files:
-            if file == "tournament_results.json":
-                results_files.append(os.path.join(root, file))
-    
-    if not results_files:
-        print("No tournament results found for analysis")
-        return
-    
-    # Use the most recent results
-    latest_results = max(results_files, key=os.path.getmtime)
-    print(f"Analyzing results from: {latest_results}")
-    
-    analyzer = TournamentAnalyzer(latest_results)
-    analyzer.generate_report("analysis_output")
-    
-    print("Analysis complete! Check 'analysis_output/' directory for results.")
+    try:
+        # Create checkpoint analyzer
+        analyzer = CheckpointAnalyzer()
+        
+        # Load session data (will auto-detect latest if not specified)
+        loaded_session = analyzer.load_session_data(session_name)
+        
+        # Generate comprehensive report
+        analyzer.generate_comprehensive_report("analysis_output")
+        
+        print(f"Analysis complete for session: {loaded_session}")
+        print("Check 'analysis_output/' directory for results.")
+        
+    except Exception as e:
+        print(f"Analysis failed: {e}")
+        print("This might be because no training session with logging/checkpoints was found.")
+        print("Please run a training session first with the new logging system.")
 
 def main():
     """Main function to run the complete tournament system."""
@@ -209,7 +207,7 @@ def main():
     parser.add_argument("--skip-evolution", action="store_true", help="Skip evolutionary phase")
     parser.add_argument("--analyze-only", action="store_true", help="Only run analysis on existing results")
     parser.add_argument("--load-checkpoint", type=str, help="Load models from checkpoint directory")
-    parser.add_argument("--session-name", type=str, help="Name for this training session")
+    parser.add_argument("--session-name", type=str, help="Name for this training session (also used for analysis-only mode)")
     
     args = parser.parse_args()
     
@@ -217,7 +215,7 @@ def main():
     setup_tensorflow()
     
     if args.analyze_only:
-        analyze_results()
+        analyze_results(args.session_name)
         return
     
     # Generate session name if not provided
@@ -270,7 +268,7 @@ def main():
     final_tournament, final_results = run_final_tournament(players, args.final_matches, args.target_penalty)
     
     # Analysis
-    analyze_results()
+    analyze_results(args.session_name)
     
     print("\n" + "="*60)
     print("TOURNAMENT COMPLETE!")
