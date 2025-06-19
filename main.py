@@ -1,0 +1,235 @@
+"""
+Main script for Take 6 Tournament with Neural Network Players
+"""
+import os
+import sys
+import argparse
+import numpy as np
+import tensorflow as tf
+from typing import List
+
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from game.take6 import Take6Game
+from models.neural_network import Take6Player, ModelFactory
+from tournament.elo_tournament import Tournament, EvolutionaryTournament, EloSystem
+from training.self_play import AdaptiveTraining
+from analysis.visualize_results import TournamentAnalyzer
+
+def setup_tensorflow():
+    """Configure TensorFlow settings."""
+    # Set memory growth for GPU if available
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"Found {len(gpus)} GPU(s)")
+        except RuntimeError as e:
+            print(f"GPU setup error: {e}")
+    else:
+        print("No GPU found, using CPU")
+    
+    # Set random seeds for reproducibility
+    tf.random.set_seed(42)
+    np.random.seed(42)
+
+def create_players(num_players: int = 40) -> List[Take6Player]:
+    """Create initial population of players."""
+    print(f"Creating {num_players} neural network players...")
+    
+    # Calculate input size based on game state
+    # This should match the get_game_state_vector method in GameState
+    input_size = 104 + (4 * 6 * 104) + 4 + 1  # Hand + Rows + Penalties + Round
+    
+    players = ModelFactory.create_population(num_players, input_size)
+    
+    print(f"Created {len(players)} players with input size {input_size}")
+    return players
+
+def run_training_phase(players: List[Take6Player], num_cycles: int = 10, 
+                      games_per_cycle: int = 200):
+    """Run the main training phase."""
+    print(f"\nStarting training phase: {num_cycles} cycles, {games_per_cycle} games per cycle")
+    
+    # Create tournament system
+    elo_system = EloSystem(k_factor=32, initial_rating=1500.0)
+    tournament = Tournament(players, elo_system)
+    
+    # Create adaptive training system
+    adaptive_trainer = AdaptiveTraining(players, tournament)
+    
+    all_results = []
+    
+    for cycle in range(num_cycles):
+        print(f"\n--- Training Cycle {cycle + 1}/{num_cycles} ---")
+        
+        # Run games and training
+        cycle_results = adaptive_trainer.run_adaptive_cycle(
+            num_games=games_per_cycle, 
+            train_after_games=True
+        )
+        all_results.extend(cycle_results)
+        
+        # Print progress
+        tournament.print_leaderboard(top_n=10)
+        
+        # Save progress periodically
+        if (cycle + 1) % 5 == 0:
+            save_dir = f"checkpoints/cycle_{cycle + 1}"
+            adaptive_trainer.save_models(save_dir)
+            tournament.save_results(f"{save_dir}/tournament_results.json")
+            print(f"Saved checkpoint to {save_dir}")
+    
+    return all_results, tournament, adaptive_trainer
+
+def run_evolutionary_phase(players: List[Take6Player], num_generations: int = 5,
+                          games_per_generation: int = 500):
+    """Run evolutionary tournament phase."""
+    print(f"\nStarting evolutionary phase: {num_generations} generations")
+    
+    # Create evolutionary tournament
+    elo_system = EloSystem(k_factor=40, initial_rating=1500.0)
+    evo_tournament = EvolutionaryTournament(
+        players, elo_system, 
+        selection_ratio=0.3, 
+        mutation_rate=0.15
+    )
+    
+    for generation in range(num_generations):
+        print(f"\n--- Generation {generation + 1}/{num_generations} ---")
+        
+        # Run tournament games
+        results = evo_tournament.run_random_games(games_per_generation, verbose=False)
+        
+        # Print current leaderboard
+        evo_tournament.print_leaderboard(top_n=15)
+        
+        # Evolve population (except for last generation)
+        if generation < num_generations - 1:
+            evo_tournament.evolve_population()
+        
+        # Save generation results
+        save_dir = f"evolution/generation_{generation + 1}"
+        os.makedirs(save_dir, exist_ok=True)
+        evo_tournament.save_results(f"{save_dir}/results.json")
+    
+    return evo_tournament
+
+def run_final_tournament(players: List[Take6Player], num_games: int = 1000):
+    """Run final comprehensive tournament."""
+    print(f"\nRunning final tournament with {num_games} games...")
+    
+    elo_system = EloSystem(k_factor=16, initial_rating=1500.0)  # Lower K for stability
+    final_tournament = Tournament(players, elo_system)
+    
+    # Run comprehensive tournament
+    results = final_tournament.run_random_games(num_games, verbose=True)
+    
+    # Print final standings
+    print("\n" + "="*60)
+    print("FINAL TOURNAMENT RESULTS")
+    print("="*60)
+    final_tournament.print_leaderboard(top_n=20)
+    
+    # Save final results
+    os.makedirs("final_results", exist_ok=True)
+    final_tournament.save_results("final_results/tournament_results.json")
+    
+    return final_tournament, results
+
+def analyze_results():
+    """Analyze and visualize tournament results."""
+    print("\nGenerating analysis and visualizations...")
+    
+    # Find the most recent results file
+    results_files = []
+    for root, dirs, files in os.walk("."):
+        for file in files:
+            if file == "tournament_results.json":
+                results_files.append(os.path.join(root, file))
+    
+    if not results_files:
+        print("No tournament results found for analysis")
+        return
+    
+    # Use the most recent results
+    latest_results = max(results_files, key=os.path.getmtime)
+    print(f"Analyzing results from: {latest_results}")
+    
+    analyzer = TournamentAnalyzer(latest_results)
+    analyzer.generate_report("analysis_output")
+    
+    print("Analysis complete! Check 'analysis_output/' directory for results.")
+
+def main():
+    """Main function to run the complete tournament system."""
+    parser = argparse.ArgumentParser(description="Take 6 Neural Network Tournament")
+    parser.add_argument("--players", type=int, default=40, help="Number of players")
+    parser.add_argument("--training-cycles", type=int, default=10, help="Number of training cycles")
+    parser.add_argument("--games-per-cycle", type=int, default=200, help="Games per training cycle")
+    parser.add_argument("--evolutionary-generations", type=int, default=5, help="Number of evolutionary generations")
+    parser.add_argument("--games-per-generation", type=int, default=500, help="Games per evolutionary generation")
+    parser.add_argument("--final-games", type=int, default=1000, help="Number of final tournament games")
+    parser.add_argument("--skip-training", action="store_true", help="Skip training phase")
+    parser.add_argument("--skip-evolution", action="store_true", help="Skip evolutionary phase")
+    parser.add_argument("--analyze-only", action="store_true", help="Only run analysis on existing results")
+    parser.add_argument("--load-checkpoint", type=str, help="Load models from checkpoint directory")
+    
+    args = parser.parse_args()
+    
+    # Setup
+    setup_tensorflow()
+    
+    if args.analyze_only:
+        analyze_results()
+        return
+    
+    # Create output directories
+    os.makedirs("checkpoints", exist_ok=True)
+    os.makedirs("evolution", exist_ok=True)
+    os.makedirs("final_results", exist_ok=True)
+    
+    # Create or load players
+    players = create_players(args.players)
+    
+    if args.load_checkpoint:
+        print(f"Loading models from checkpoint: {args.load_checkpoint}")
+        # Note: You would implement checkpoint loading here
+        # For now, we'll use fresh models
+    
+    # Training phase
+    if not args.skip_training:
+        training_results, tournament, adaptive_trainer = run_training_phase(
+            players, args.training_cycles, args.games_per_cycle
+        )
+        
+        # Save trained models
+        adaptive_trainer.save_models("trained_models")
+    
+    # Evolutionary phase
+    if not args.skip_evolution:
+        evo_tournament = run_evolutionary_phase(
+            players, args.evolutionary_generations, args.games_per_generation
+        )
+        players = evo_tournament.players  # Use evolved players
+    
+    # Final tournament
+    final_tournament, final_results = run_final_tournament(players, args.final_games)
+    
+    # Analysis
+    analyze_results()
+    
+    print("\n" + "="*60)
+    print("TOURNAMENT COMPLETE!")
+    print("="*60)
+    print("Check the following directories for results:")
+    print("- final_results/: Final tournament results")
+    print("- analysis_output/: Analysis and visualizations")
+    print("- trained_models/: Final model weights")
+    print("- checkpoints/: Training checkpoints")
+    print("- evolution/: Evolutionary phase results")
+
+if __name__ == "__main__":
+    main()
