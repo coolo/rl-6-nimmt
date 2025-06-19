@@ -81,7 +81,7 @@ class Take6Player:
         self.total_score = 0
         
     def get_action(self, game_state: GameState, valid_actions: List[Tuple[Card, List[int]]], 
-                   training: bool = False) -> Tuple[Card, Optional[int]]:
+                   game_player_id: Optional[int] = None, training: bool = False) -> Tuple[Card, Optional[int]]:
         """
         Choose an action based on current game state.
         Returns: (card_to_play, row_to_take_if_needed)
@@ -90,8 +90,11 @@ class Take6Player:
             # Random exploration
             return self._random_action(valid_actions)
         
+        # Use game_player_id if provided, otherwise use self.player_id
+        player_id_for_state = game_player_id if game_player_id is not None else self.player_id
+        
         # Get neural network prediction
-        state_vector = game_state.get_game_state_vector(self.player_id)
+        state_vector = game_state.get_game_state_vector(player_id_for_state)
         state_vector = np.expand_dims(state_vector, axis=0)  # Add batch dimension
         
         predictions = self.model(state_vector, training=training)

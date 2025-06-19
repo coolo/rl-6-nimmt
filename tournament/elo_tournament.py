@@ -3,7 +3,7 @@ Tournament System with Elo Rating for Take 6
 """
 import random
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 import json
 import os
 from collections import defaultdict
@@ -76,7 +76,7 @@ class EloSystem:
 class Tournament:
     """Tournament system for Take 6 players."""
     
-    def __init__(self, players: List[Take6Player], elo_system: EloSystem = None):
+    def __init__(self, players: List[Take6Player], elo_system: Optional[EloSystem] = None):
         self.players = players
         self.elo_system = elo_system or EloSystem()
         self.tournament_history = []
@@ -100,7 +100,8 @@ class Tournament:
             # Get action from each player
             for i, player in enumerate(game_players):
                 valid_actions = game.get_valid_actions(i)
-                card, row = player.get_action(state, valid_actions, training=True)
+                # Pass the game player index (i) instead of player's own ID
+                card, row = player.get_action(state, valid_actions, game_player_id=i, training=True)
                 player_actions[i] = (card, row)
             
             # Execute round
@@ -108,10 +109,11 @@ class Tournament:
             
             round_log = {
                 'round': round_num,
-                'actions': {i: (card.number, row) for i, (card, row) in player_actions.items()},
-                'results': {i: (penalty, [c.number for c in cards]) 
+                'actions': {int(i): (int(card.number), int(row) if row is not None else None) 
+                          for i, (card, row) in player_actions.items()},
+                'results': {int(i): (int(penalty), [int(c.number) for c in cards]) 
                           for i, (penalty, cards) in round_results.items()},
-                'penalty_totals': state.players_penalty_points.copy()
+                'penalty_totals': [int(x) for x in state.players_penalty_points]
             }
             game_log['rounds'].append(round_log)
             
@@ -121,9 +123,9 @@ class Tournament:
         # Update Elo ratings
         self.elo_system.update_ratings(game_players, state.players_penalty_points)
         
-        game_log['final_scores'] = state.players_penalty_points
-        game_log['final_elo'] = [p.elo_rating for p in game_players]
-        game_log['winner'] = state.get_winner()
+        game_log['final_scores'] = [int(x) for x in state.players_penalty_points]
+        game_log['final_elo'] = [float(p.elo_rating) for p in game_players]
+        game_log['winner'] = int(state.get_winner())
         
         return game_log
     
@@ -176,10 +178,10 @@ class Tournament:
         
         for player in self.players:
             leaderboard.append((
-                player.player_id,
-                player.elo_rating,
-                player.games_played,
-                player.get_average_score()
+                int(player.player_id),
+                float(player.elo_rating),
+                int(player.games_played),
+                float(player.get_average_score())
             ))
         
         # Sort by Elo rating (descending)
@@ -189,13 +191,29 @@ class Tournament:
     
     def save_results(self, filename: str):
         """Save tournament results to file."""
+        
+        def convert_to_serializable(obj):
+            """Convert numpy types to native Python types for JSON serialization."""
+            if hasattr(obj, 'tolist'):  # numpy arrays
+                return obj.tolist()
+            elif hasattr(obj, 'item'):  # numpy scalars
+                return obj.item()
+            elif isinstance(obj, dict):
+                return {k: convert_to_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_serializable(item) for item in obj]
+            elif isinstance(obj, tuple):
+                return tuple(convert_to_serializable(item) for item in obj)
+            else:
+                return obj
+        
         results = {
-            'tournament_history': self.tournament_history,
-            'final_leaderboard': self.get_leaderboard(),
-            'round_number': self.round_number
+            'tournament_history': convert_to_serializable(self.tournament_history),
+            'final_leaderboard': convert_to_serializable(self.get_leaderboard()),
+            'round_number': int(self.round_number)
         }
         
-        with open(filename, 'w') as f:
+        with open(filename, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2)
     
     def print_leaderboard(self, top_n: int = 10):
@@ -211,7 +229,7 @@ class Tournament:
 class EvolutionaryTournament(Tournament):
     """Tournament with evolutionary selection and mutation."""
     
-    def __init__(self, players: List[Take6Player], elo_system: EloSystem = None, 
+    def __init__(self, players: List[Take6Player], elo_system: Optional[EloSystem] = None, 
                  selection_ratio: float = 0.3, mutation_rate: float = 0.1):
         super().__init__(players, elo_system)
         self.selection_ratio = selection_ratio

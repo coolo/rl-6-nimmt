@@ -122,7 +122,7 @@ class GameState:
         hand_vector = np.zeros(104)
         for card in self.players_hands[player_id]:
             hand_vector[card.number - 1] = 1
-        state.extend(hand_vector)
+        state.extend(hand_vector.tolist())
         
         # Current rows state (4 rows * 6 positions * 104 possible cards)
         for row in self.rows:
@@ -130,14 +130,14 @@ class GameState:
             for pos, card in enumerate(row):
                 if pos < 6:  # Safety check
                     row_vector[pos * 104 + card.number - 1] = 1
-            state.extend(row_vector)
+            state.extend(row_vector.tolist())
         
         # Penalty points for all players (normalized)
-        penalty_vector = np.array(self.players_penalty_points) / 100.0  # Normalize
-        state.extend(penalty_vector)
+        penalty_vector = np.array(self.players_penalty_points, dtype=float) / 100.0  # Normalize
+        state.extend(penalty_vector.tolist())
         
         # Round number (normalized)
-        state.append(self.round_number / 10.0)
+        state.append(float(self.round_number) / 10.0)
         
         return np.array(state, dtype=np.float32)
     
