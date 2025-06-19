@@ -8,6 +8,10 @@ import numpy as np
 import tensorflow as tf
 from typing import List
 
+# Configure TensorFlow/GPU settings early
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow warnings
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN warnings
+
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -18,22 +22,34 @@ from training.self_play import AdaptiveTraining
 from analysis.visualize_results import TournamentAnalyzer
 
 def setup_tensorflow():
-    """Configure TensorFlow settings."""
-    # Set memory growth for GPU if available
-    gpus = tf.config.experimental.list_physical_devices('GPU')
+    """Configure TensorFlow settings for optimal GPU usage."""
+    # Configure GPU memory growth
+    gpus = tf.config.list_physical_devices('GPU')
     if gpus:
         try:
             for gpu in gpus:
                 tf.config.experimental.set_memory_growth(gpu, True)
-            print(f"Found {len(gpus)} GPU(s)")
+            
+            # Get GPU details
+            for i, gpu in enumerate(gpus):
+                try:
+                    gpu_details = tf.config.experimental.get_device_details(gpu)
+                    device_name = gpu_details.get('device_name', 'Unknown GPU')
+                    print(f"GPU {i}: {device_name}")
+                except:
+                    print(f"GPU {i}: {gpu.name}")
+            
+            print(f"✅ GPU configuration successful. Using {len(gpus)} GPU(s) for neural networks.")
         except RuntimeError as e:
-            print(f"GPU setup error: {e}")
+            print(f"❌ GPU setup error: {e}")
     else:
-        print("No GPU found, using CPU")
+        print("⚠️  No GPU found, using CPU")
     
     # Set random seeds for reproducibility
     tf.random.set_seed(42)
     np.random.seed(42)
+    
+    return len(gpus) > 0
 
 def create_players(num_players: int = 40) -> List[Take6Player]:
     """Create initial population of players."""

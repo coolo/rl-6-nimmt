@@ -1,11 +1,26 @@
 """
 Neural Network Models for Take 6 Players
 """
+import os
 import tensorflow as tf
 import numpy as np
 from typing import List, Tuple, Optional
 import random
 from game.take6 import Card, GameState, Take6Game
+
+# Configure GPU settings for optimal performance
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow warnings
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN warnings
+
+# Configure GPU memory growth
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print(f"GPU configuration successful. Using {len(gpus)} GPU(s) for neural network training.")
+    except RuntimeError as e:
+        print(f"GPU configuration error: {e}")
 
 class Take6Network(tf.keras.Model):
     """Neural network for playing Take 6."""
