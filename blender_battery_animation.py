@@ -19,7 +19,6 @@ Requirements:
 
 import bpy
 import math
-from mathutils import Vector
 
 
 def clear_scene():
@@ -230,16 +229,6 @@ def animate_charging(bars, start_percent=5, end_percent=100,
     for i, bar in enumerate(bars):
         material = bar.data.materials[0]
         nodes = material.node_tree.nodes
-        
-        # Find the value node for blink factor
-        blink_node = None
-        for node in nodes:
-            if node.name == "BlinkFactor":
-                blink_node = node
-                break
-        
-        if not blink_node:
-            continue
         
         # Find emission node
         emission_node = None
@@ -492,8 +481,14 @@ def create_percentage_updater():
         
         text_obj.data.body = f"{percentage}%"
     
+    # Remove any existing handlers from this script before adding new one
+    # to avoid duplicate handlers on script re-run
+    handlers_to_remove = [h for h in bpy.app.handlers.frame_change_post 
+                          if h.__name__ == 'update_percentage']
+    for handler in handlers_to_remove:
+        bpy.app.handlers.frame_change_post.remove(handler)
+    
     # Register the handler
-    bpy.app.handlers.frame_change_post.clear()
     bpy.app.handlers.frame_change_post.append(update_percentage)
 
 
